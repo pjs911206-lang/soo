@@ -26,8 +26,68 @@
     </style>
 </head>
 <body class="h-screen flex overflow-hidden">
+<div id="auth-layer" class="fixed inset-0 z-[100] gnp-blue flex items-center justify-center">
+    <!-- 로그인 박스 -->
+    <div id="login-box" class="bg-white p-10 rounded-2xl shadow-2xl w-[400px]">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-black text-gray-800 tracking-tighter">GNP HSE</h1>
+            <p class="text-gray-400 text-sm mt-1 uppercase tracking-widest">Core System v1.0</p>
+        </div>
+        <div class="space-y-4">
+            <div>
+                <label class="text-[10px] font-bold text-gray-400 ml-1">사번 (ID)</label>
+                <input type="text" id="login-id" placeholder="admin" class="w-full border p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-900 transition">
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-gray-400 ml-1">비밀번호 (PW)</label>
+                <input type="password" id="login-pw" placeholder="••••" class="w-full border p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-900 transition">
+            </div>
+            <button onclick="app.auth.login()" class="w-full gnp-blue text-white py-4 rounded-xl font-bold hover:bg-blue-900 transition shadow-lg mt-2">관리자 모드로 접속</button>
+            <button type="button" onclick="app.auth.loginGuest()" class="w-full mt-3 border-2 border-blue-900 text-blue-900 py-3.5 rounded-xl font-bold hover:bg-blue-50 transition">
+                <i class="fas fa-user mr-2"></i>Guest 로그인
+            </button>
+            <p class="text-center text-[11px] text-gray-400 mt-2">Guest 모드에서는 제안 등록과 조회만 가능합니다.</p>
+            <div class="flex justify-between text-xs text-gray-400 px-1 pt-2">
+                <button onclick="app.ui.toggleAuth(true)" class="hover:text-blue-600">신규 계정 신청</button>
+                <button onclick="app.db.reset()" class="hover:text-red-500">데이터 초기화</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 회원가입 박스 -->
+    <div id="signup-box" class="bg-white p-10 rounded-2xl shadow-2xl w-[450px] hidden">
+        <h2 class="text-2xl font-bold mb-6 text-gray-800 border-b pb-3">계정 신청</h2>
+        <div class="grid grid-cols-2 gap-4">
+            <div class="col-span-1">
+                <label class="text-[10px] font-bold text-gray-400 ml-1">사번</label>
+                <input type="text" id="reg-id" class="w-full border p-3 rounded-xl outline-none focus:ring-2 focus:ring-green-600">
+            </div>
+            <div class="col-span-1">
+                <label class="text-[10px] font-bold text-gray-400 ml-1">성명</label>
+                <input type="text" id="reg-name" class="w-full border p-3 rounded-xl outline-none focus:ring-2 focus:ring-green-600">
+            </div>
+            <div class="col-span-2">
+                <label class="text-[10px] font-bold text-gray-400 ml-1">부서</label>
+                <select id="reg-team" class="w-full border p-3 rounded-xl outline-none bg-white">
+                    <option>인사환경팀</option><option>재경기획팀</option><option>구매팀</option><option>개발생산팀</option><option>전선생산2팀(문경)</option><option>생산관리팀</option><option>품질보증팀</option><option>영업팀</option><option>생산기술팀</option><option>컴파운드생산팀</option><option>개발팀(컴)</option><option>품질보증팀(컴)</option><option>영업팀(컴)</option>
+                </select>
+            </div>
+            <div class="col-span-1">
+                <label class="text-[10px] font-bold text-gray-400 ml-1">비밀번호</label>
+                <input type="password" id="reg-pw" class="w-full border p-3 rounded-xl outline-none focus:ring-2 focus:ring-green-600">
+            </div>
+            <div class="col-span-1">
+                <label class="text-[10px] font-bold text-gray-400 ml-1">비밀번호 확인</label>
+                <input type="password" id="reg-pw-confirm" class="w-full border p-3 rounded-xl outline-none focus:ring-2 focus:ring-green-600">
+            </div>
+        </div>
+        <button onclick="app.auth.signup()" class="w-full bg-green-600 text-white py-4 rounded-xl font-bold hover:bg-green-700 transition shadow-lg mt-6">가입 신청 완료</button>
+        <button onclick="app.ui.toggleAuth(false)" class="w-full text-gray-400 text-xs mt-4 hover:underline">취소하고 돌아가기</button>
+    </div>
+</div>
+
 <!-- [Layer 2] 메인 사이드바 -->
-<aside id="main-sidebar" class="w-64 gnp-blue text-white flex flex-col shadow-2xl z-20 flex-shrink-0">
+<aside id="main-sidebar" class="w-64 gnp-blue text-white flex flex-col shadow-2xl z-20 flex-shrink-0 hidden">
     <div class="p-6 border-b border-blue-800 flex items-center gap-3 cursor-pointer" onclick="app.router.go('AI1', 'AI 안전제안')">
         <div class="w-9 h-9 bg-white rounded flex items-center justify-center text-blue-900 font-bold text-xl"><i class="fas fa-wand-magic-sparkles"></i></div>
         <div class="text-lg font-bold tracking-tight leading-tight">AI 안전제안<br><span class="text-[9px] text-blue-300 font-normal tracking-widest">SAFETY PROPOSAL</span></div>
@@ -39,7 +99,7 @@
 </aside>
 
 <!-- [Layer 3] 메인 본문 -->
-<main id="main-body" class="flex-1 flex flex-col min-w-0 overflow-hidden">
+<main id="main-body" class="flex-1 flex flex-col min-w-0 overflow-hidden hidden">
     <header class="bg-white h-16 border-b flex items-center justify-between px-8 shadow-sm">
         <h2 id="view-title" class="text-xl font-bold text-gray-800 tracking-tight">대시보드</h2>
         <div class="flex items-center gap-4">
@@ -7368,8 +7428,7 @@ const app = {
         initSystem: () => {
             const u = app.auth.currentUser;
             app.auth.normalizeUsers(app.db.getUsers());
-            const authLayer = document.getElementById('auth-layer');
-            if (authLayer) authLayer.remove();
+            document.getElementById('auth-layer').classList.add('hidden');
             document.getElementById('main-sidebar').classList.remove('hidden');
             document.getElementById('main-body').classList.remove('hidden');
             
@@ -8853,31 +8912,137 @@ const app = {
 </script>
 
 
-
-<!-- AI 안전제안 직접 실행: 로그인 UI/절차 없음 -->
-<script>
+<!-- AI 안전제안: 관리자 / Guest 권한 분리 -->
+<style id="ai1-role-mode-style">
+  .ai1-guest-notice{margin:10px 0 0;padding:9px 12px;border:1px solid #bfdbfe;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:700}
+  body.ai1-guest-mode .ai1-admin-only{display:none!important}
+  body.ai1-guest-mode .ai1-period-btn{opacity:.6;cursor:not-allowed}
+  .ai1-readonly-status{display:inline-flex;align-items:center;justify-content:center;min-width:68px;padding:5px 9px;border-radius:999px;background:#f1f5f9;color:#475569;font-size:12px;font-weight:800}
+</style>
+<script id="ai1-role-mode-script">
 (function () {
-  function openAiSafetyProposal() {
-    try {
-      const users = app.auth.normalizeUsers(app.db.getUsers());
-      const user = users.find(function (item) { return item.id === 'admin'; }) || users[0];
-      if (!user) throw new Error('기본 사용자를 준비하지 못했습니다.');
+  if (typeof app === 'undefined' || !app.ai1 || !app.auth) return;
+  const ai = app.ai1;
+  const isAdmin = () => !!(app.auth.currentUser && app.auth.currentUser.role === 'MASTER');
+  const escapeHtml = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 
-      app.auth.currentUser = user;
-      app.ui.initSystem();
-      app.router.go('AI1', 'AI 안전제안');
-    } catch (error) {
-      console.error('AI 안전제안 초기화 오류:', error);
-      document.getElementById('main-body').classList.remove('hidden');
-      document.getElementById('main-sidebar').classList.remove('hidden');
+  /* Guest는 별도 계정 등록 없이 즉시 AI 안전제안 메뉴로 진입합니다. */
+  app.auth.loginGuest = function () {
+    app.auth.currentUser = {
+      id: 'guest',
+      name: 'Guest',
+      team: 'AI 안전제안',
+      role: 'GUEST',
+      modules: []
+    };
+    app.ui.initSystem();
+  };
+
+  /* 화면 제어뿐 아니라 기존 수정·삭제·단순 상태변경 함수도 Guest에서 차단합니다. */
+  ['setStatus', 'remove', 'edit'].forEach(name => {
+    if (typeof ai[name] !== 'function' || ai['__role_' + name]) return;
+    const original = ai[name].bind(ai);
+    ai['__role_' + name] = original;
+    ai[name] = function () {
+      if (!isAdmin()) {
+        alert('이 기능은 관리자 모드에서만 사용할 수 있습니다.');
+        return;
+      }
+      return original.apply(null, arguments);
+    };
+  });
+
+  function addGuestNotice() {
+    const target = document.getElementById('ai1-manage-actions')?.parentElement
+      || document.getElementById('ai1-filter-area')?.parentElement;
+    if (!target) return;
+    let notice = document.getElementById('ai1-guest-notice');
+    if (isAdmin()) {
+      notice?.remove();
+      return;
+    }
+    if (!notice) {
+      notice = document.createElement('div');
+      notice.id = 'ai1-guest-notice';
+      notice.className = 'ai1-guest-notice';
+      notice.textContent = 'Guest 모드 · 제안 등록·조회·인쇄 가능 / 상태 변경·수정·삭제·Excel 다운로드는 관리자 전용';
+      target.insertBefore(notice, target.firstChild);
     }
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', openAiSafetyProposal, { once: true });
-  } else {
-    openAiSafetyProposal();
+  function applyRoleUI() {
+    const admin = isAdmin();
+    document.body.classList.toggle('ai1-guest-mode', !admin);
+
+    const role = document.getElementById('user-role');
+    if (role) role.textContent = admin ? 'Administrator Mode' : 'Guest Mode';
+
+    const excel = document.getElementById('ai1-export-excel');
+    if (excel) {
+      excel.style.display = admin ? '' : 'none';
+      excel.setAttribute('aria-hidden', admin ? 'false' : 'true');
+    }
+
+    /* 운영 상태 버튼: 관리자만 선택/변경 가능 */
+    document.querySelectorAll('.ai1-period-btn').forEach(button => {
+      button.disabled = !admin;
+      button.title = admin ? '' : '운영 상태는 관리자 모드에서만 변경할 수 있습니다.';
+    });
+
+    document.querySelectorAll('#ai1-table tr').forEach(row => {
+      const statusSelect = row.querySelector('select');
+      if (!admin && statusSelect) {
+        const cell = statusSelect.closest('td');
+        const status = statusSelect.value || '검토대기';
+        if (cell) cell.innerHTML = `<span class="ai1-readonly-status">${escapeHtml(status)}</span>`;
+      }
+
+      row.querySelectorAll('button[onclick*="app.ai1.edit"], button[onclick*="app.ai1.remove"]').forEach(button => {
+        button.style.display = admin ? '' : 'none';
+        button.classList.toggle('ai1-admin-only', !admin);
+      });
+      row.querySelectorAll('.ai1-status-change-custom').forEach(button => {
+        button.style.display = admin ? '' : 'none';
+        button.disabled = !admin;
+      });
+    });
+    addGuestNotice();
   }
+
+  /* 마지막 렌더 단계에 권한별 표시를 적용합니다. */
+  const previousRender = ai.render.bind(ai);
+  ai.render = function () {
+    const result = previousRender();
+    applyRoleUI();
+    return result;
+  };
+
+  /* Guest가 개발자 도구 등으로 숨은 버튼 이벤트를 실행하는 것을 UI 레벨에서 한 번 더 차단합니다. */
+  document.addEventListener('click', function (event) {
+    if (isAdmin()) return;
+    const statusButton = event.target.closest?.('.ai1-status-change-custom, .ai1-period-btn, #ai1-export-excel');
+    if (statusButton) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      alert('이 기능은 관리자 모드에서만 사용할 수 있습니다.');
+    }
+  }, true);
+
+  /* 같은 브라우저의 다른 탭에서 저장된 변경도 자동 반영합니다. */
+  window.addEventListener('storage', function (event) {
+    if (event.key === 'gnp_ai1_proposals' || event.key === 'gnp_ai1_operating_period') {
+      try { ai.render(); } catch (_) {}
+    }
+  });
+
+  const originalInit = app.ui.initSystem.bind(app.ui);
+  app.ui.initSystem = function () {
+    const result = originalInit();
+    setTimeout(applyRoleUI, 0);
+    return result;
+  };
+
+  setTimeout(applyRoleUI, 0);
 })();
 </script>
 
