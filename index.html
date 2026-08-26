@@ -13316,6 +13316,11 @@ const app = {
     return panel;
   }
 
+  function getLegacyApp() {
+    try { if (typeof app !== "undefined" && app) return app; } catch (_) {}
+    return window.app || null;
+  }
+
   function writeLog(message) {
     const log = document.getElementById("firebase-v1-log");
     if (!log) return;
@@ -13492,28 +13497,29 @@ const app = {
   }
 
   async function patchAuth() {
-    if (!window.app?.auth || window.app.auth.__firebaseV1Patched) return false;
-    window.app.auth.__firebaseV1Patched = true;
-    const originalLogin = window.app.auth.login;
-    const originalSignup = window.app.auth.signup;
+    const legacyApp = getLegacyApp();
+    if (!legacyApp?.auth || legacyApp.auth.__firebaseV1Patched) return false;
+    legacyApp.auth.__firebaseV1Patched = true;
+    const originalLogin = legacyApp.auth.login;
+    const originalSignup = legacyApp.auth.signup;
 
-    window.app.auth.login = async function () {
+    legacyApp.auth.login = async function () {
       const id = document.getElementById("login-id")?.value.trim();
       const pw = document.getElementById("login-pw")?.value || "";
       if (!id || !pw) return alert("로그인 ID와 비밀번호를 입력해 주세요.");
       try {
         const user = await firebaseLogin();
-        window.app.auth.currentUser = user;
-        try { window.app.auth.syncCurrentUser?.(); } catch (_) { }
-        window.app.ui.initSystem();
+        legacyApp.auth.currentUser = user;
+        try { legacyApp.auth.syncCurrentUser?.(); } catch (_) { }
+        legacyApp.ui.initSystem();
       } catch (firebaseError) {
         // 아직 이전하지 않은 계정은 기존 로그인 방식으로 안전하게 fallback합니다.
         try {
-          const rows = window.app.auth.normalizeUsers(window.app.db.getUsers());
+          const rows = legacyApp.auth.normalizeUsers(legacyApp.db.getUsers());
           const local = rows.find(u => String(u.id) === String(id) && String(u.pw || "") === pw);
           if (local) {
-            window.app.auth.currentUser = local;
-            window.app.ui.initSystem();
+            legacyApp.auth.currentUser = local;
+            legacyApp.ui.initSystem();
             writeLog(`로컬 로그인 fallback: ${id} (${firebaseError.code || firebaseError.message})`);
             return;
           }
@@ -13524,7 +13530,7 @@ const app = {
       }
     };
 
-    window.app.auth.signup = async function () {
+    legacyApp.auth.signup = async function () {
       const name = document.getElementById("reg-name")?.value.trim();
       const team = document.getElementById("reg-team")?.value;
       const pw = document.getElementById("reg-pw")?.value || "";
@@ -13532,19 +13538,19 @@ const app = {
       if (!name || !pw) return alert("모든 항목을 입력해 주세요.");
       if (pw !== pwConfirm) return alert("비밀번호가 일치하지 않습니다. 다시 확인해 주세요.");
       if (pw.length < 6) return alert("Firebase 계정은 비밀번호를 6자리 이상으로 입력해 주세요.");
-      if (!window.app.teams.userTeams.includes(team)) return alert("선택한 부서를 확인해 주세요.");
-      const localRows = window.app.auth.normalizeUsers(window.app.db.getUsers());
+      if (!legacyApp.teams.userTeams.includes(team)) return alert("선택한 부서를 확인해 주세요.");
+      const localRows = legacyApp.auth.normalizeUsers(legacyApp.db.getUsers());
       if (localRows.some(u => String(u.id) === name)) return alert("이미 등록된 성명입니다.");
       try {
         const email = await internalEmail(name);
         const credential = await createUserWithEmailAndPassword(fbAuth, email, pw);
         const user = { id: name, name, team, role: "반원", modules: [], pw, firebaseUid: credential.user.uid };
         localRows.push(user);
-        window.app.db.saveUsers(localRows);
+        legacyApp.db.saveUsers(localRows);
         await writeUserProfile(credential.user.uid, user, email);
         await signOut(fbAuth);
         alert("Firebase 계정 신청이 완료되었습니다. 관리자 권한 승인 후 로그인할 수 있습니다.");
-        window.app.ui.toggleAuth(false);
+        legacyApp.ui.toggleAuth(false);
       } catch (error) {
         if (error?.code === "auth/email-already-in-use") return alert("이미 신청된 계정입니다. 관리자에게 확인해 주세요.");
         alert(`계정 생성 중 오류가 발생했습니다.\n${error.code || error.message}`);
@@ -13559,9 +13565,9 @@ const app = {
         if (!profile) { refreshPanel(); return; }
         const localRows = getLegacyUsers();
         const local = localRows.find(u => String(u.id) === String(profile.legacyId || ""));
-        window.app.auth.currentUser = { ...(local || {}), ...profile, id: profile.legacyId || local?.id || profile.name, name: profile.name || local?.name, role: profile.role || local?.role || "반원", team: profile.team || local?.team || "미지정" };
-        if (window.app?.ui?.initSystem && document.getElementById("auth-layer")?.classList.contains("hidden") === false) {
-          window.app.ui.initSystem();
+        legacyApp.auth.currentUser = { ...(local || {}), ...profile, id: profile.legacyId || local?.id || profile.name, name: profile.name || local?.name, role: profile.role || local?.role || "반원", team: profile.team || local?.team || "미지정" };
+        if (getLegacyApp()?.ui?.initSystem && document.getElementById("auth-layer")?.classList.contains("hidden") === false) {
+          legacyApp.ui.initSystem();
         }
         refreshPanel();
       } catch (error) {
@@ -13574,7 +13580,7 @@ const app = {
       if ((btn.textContent || "").includes("LOGOUT SYSTEM")) {
         btn.onclick = async () => {
           try { await signOut(fbAuth); } catch (_) { }
-          window.app.auth.currentUser = null;
+          legacyApp.auth.currentUser = null;
           location.reload();
         };
       }
@@ -13607,7 +13613,7 @@ const app = {
 
       // app은 원본 스크립트들이 먼저 초기화하므로 아주 짧게 기다린 뒤 patch합니다.
       const deadline = Date.now() + 15000;
-      while (!(window.app?.auth && window.app?.db)) {
+      while (!(getLegacyApp()?.auth && getLegacyApp()?.db)) {
         if (Date.now() > deadline) throw new Error("기존 앱 초기화가 완료되지 않았습니다.");
         await new Promise(resolve => setTimeout(resolve, 100));
       }
