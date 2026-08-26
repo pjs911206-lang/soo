@@ -10688,7 +10688,12 @@ const app = {
       alert(`회원 삭제 완료\n\n${target.name||targetId} (${targetId})\nFirebase Authentication: 삭제 완료\nFirestore users: 삭제 완료\n로컬 회원 목록: 삭제 완료`);
     }catch(error){
       console.error('member delete failed',error);
-      alert(`회원 삭제에 실패했습니다.\n\n${error?.message||error}\n\n※ Firebase Authentication 계정은 서버 권한(Admin SDK)으로 삭제해야 하므로, Firebase Functions가 배포되어 있어야 합니다.`);
+      const code = error?.code || "";
+      const detail = String(error?.message || error);
+      const hint = /not-found|NOT_FOUND|functions\/(not-found|unavailable)|404/i.test(code + " " + detail)
+        ? "\n\n※ Firebase Functions의 deleteMemberAccount가 아직 배포되지 않았거나 리전이 맞지 않습니다. 함께 제공한 functions 폴더를 배포하면 해결됩니다."
+        : "";
+      alert(`회원 삭제에 실패했습니다.\n\n${detail}${hint}`);
     }
   };
   window.safetyRole.toggleApprovalMode=()=>{ if(!isRoot())return; localStorage.setItem('gnp_ai1_approval_mode',String(!approvalEnabled()));renderPermissionV3();app.ai1.render();};
@@ -13224,7 +13229,8 @@ const app = {
     signOut,
     initializeAuth,
     indexedDBLocalPersistence,
-    inMemoryPersistence
+    inMemoryPersistence,
+    browserSessionPersistence
   } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
   import {
     getFirestore,
@@ -13676,6 +13682,20 @@ const app = {
       }
     };
 
+    // 로그인 입력창에서 Enter를 누르면 동일한 로그인 동작을 실행합니다.
+    if (!document.documentElement.dataset.gnpLoginEnterBound) {
+      document.documentElement.dataset.gnpLoginEnterBound = "1";
+      ["login-id", "login-pw"].forEach((fieldId) => {
+        const field = document.getElementById(fieldId);
+        if (!field) return;
+        field.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          legacyApp.auth.login();
+        });
+      });
+    }
+
     legacyApp.auth.signup = async function () {
       const name = document.getElementById("reg-name")?.value.trim();
       const team = document.getElementById("reg-team")?.value;
@@ -13708,9 +13728,18 @@ const app = {
       if (!firebaseUser) { refreshPanel(); return; }
       try {
         const profile = await loadFirebaseProfile(firebaseUser);
-        if (!profile) { refreshPanel(); return; }
         const localRows = getLegacyUsers();
-        const local = localRows.find(u => String(u.id) === String(profile.legacyId || ""));
+        const local = profile ? localRows.find(u => String(u.id) === String(profile.legacyId || "")) : null;
+        // Firebase Auth는 남아 있어도 Firestore 회원 프로필이 삭제된 계정은 즉시 세션을 폐기합니다.
+        if (!profile || !local) {
+          try { await signOut(fbAuth); } catch (_) { }
+          legacyApp.auth.currentUser = null;
+          document.getElementById("auth-layer")?.classList.remove("hidden");
+          document.getElementById("main-sidebar")?.classList.add("hidden");
+          document.getElementById("main-body")?.classList.add("hidden");
+          refreshPanel();
+          return;
+        }
         legacyApp.auth.currentUser = { ...(local || {}), ...profile, id: profile.legacyId || local?.id || profile.name, name: profile.name || local?.name, role: profile.role || local?.role || "반원", team: profile.team || local?.team || "미지정" };
         if (getLegacyApp()?.ui?.initSystem && document.getElementById("auth-layer")?.classList.contains("hidden") === false) {
           legacyApp.ui.initSystem();
@@ -13739,7 +13768,13 @@ const app = {
     try {
       const existing = getApps().find(a => a.name === "[DEFAULT]");
       fbApp = existing || initializeApp(firebaseConfig);
-      fbAuth = getAuth(fbApp);
+      // 로그인 상태는 현재 브라우저 탭/창의 세션 동안만 유지합니다.
+      // 새로고침은 유지되지만 탭/창을 닫으면 Firebase Auth 세션이 종료됩니다.
+      try {
+        fbAuth = initializeAuth(fbApp, { persistence: browserSessionPersistence });
+      } catch (_) {
+        fbAuth = getAuth(fbApp);
+      }
       fbDb = getFirestore(fbApp);
       initialized = true;
       window.gnpFirebase = {
@@ -13789,7 +13824,7 @@ const app = {
 
 
 
-<!-- FIREBASE BOOTSTRAP VISIBLE PANEL (항상 표시) -->
+<!-- FIREBASE BOOTSTRAP VISIBLE PANEL (admin 전용) -->
 <aside id="firebase-v1-panel" data-bootstrap="1" style="position:fixed;right:18px;bottom:18px;z-index:2147483647;width:380px;max-width:calc(100vw - 36px);background:#fff;border:2px solid #2563eb;border-radius:14px;box-shadow:0 16px 40px rgba(15,23,42,.18);padding:14px;font-family:inherit;display:none">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
     <div><div style="font-size:13px;font-weight:900;color:#0f172a">Firebase 연결 상태</div><div id="firebase-v1-status" style="font-size:11px;color:#64748b;margin-top:3px">Firebase 초기화 대기 중...</div></div>
