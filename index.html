@@ -13275,37 +13275,45 @@ const app = {
   }
 
   function ensurePanel() {
-    if (document.getElementById("firebase-v1-panel")) return;
-    const panel = document.createElement("aside");
-    panel.id = "firebase-v1-panel";
-    panel.style.cssText = [
-      "position:fixed","right:18px","bottom:18px","z-index:2147483647","width:380px",
-      "max-width:calc(100vw - 36px)","background:#fff","border:1px solid #cbd5e1",
-      "border-radius:14px","box-shadow:0 16px 40px rgba(15,23,42,.18)","padding:14px",
-      "display:none","font-family:inherit"
-    ].join(";");
-    panel.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
-        <div>
-          <div style="font-size:13px;font-weight:900;color:#0f172a">Firebase 연결 상태</div>
-          <div id="firebase-v1-status" style="font-size:11px;color:#64748b;margin-top:3px">확인 중...</div>
+    let panel = document.getElementById("firebase-v1-panel");
+    if (!panel) {
+      panel = document.createElement("aside");
+      panel.id = "firebase-v1-panel";
+      panel.style.cssText = [
+        "position:fixed","right:18px","bottom:18px","z-index:2147483647","width:380px",
+        "max-width:calc(100vw - 36px)","background:#fff","border:1px solid #cbd5e1",
+        "border-radius:14px","box-shadow:0 16px 40px rgba(15,23,42,.18)","padding:14px",
+        "display:block","font-family:inherit"
+      ].join(";");
+      panel.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+          <div>
+            <div style="font-size:13px;font-weight:900;color:#0f172a">Firebase 연결 상태</div>
+            <div id="firebase-v1-status" style="font-size:11px;color:#64748b;margin-top:3px">초기화 대기 중...</div>
+          </div>
+          <button id="firebase-v1-close" type="button" style="border:0;background:transparent;color:#64748b;font-size:18px;cursor:pointer">×</button>
         </div>
-        <button id="firebase-v1-close" type="button" style="border:0;background:transparent;color:#64748b;font-size:18px;cursor:pointer">×</button>
-      </div>
-      <div id="firebase-v1-migration-info" style="font-size:11px;color:#475569;line-height:1.6;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px;margin-bottom:9px"></div><div style="font-size:10px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px;margin-bottom:9px;line-height:1.5">이 패널은 Firebase 연결을 확인하기 위한 초기 설정용입니다. 회원 이전은 <b>admin</b>으로 로그인한 경우에만 실행됩니다.</div>
-      <div style="display:flex;gap:7px;flex-wrap:wrap">
-        <button id="firebase-v1-check" type="button" style="border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">연결 확인</button>
-        <button id="firebase-v1-migrate" type="button" style="border:0;background:#2563eb;color:#fff;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">기존 회원 Firebase 이전 (admin 전용)</button>
-      </div>
-      <pre id="firebase-v1-log" style="white-space:pre-wrap;max-height:180px;overflow:auto;font-size:10px;color:#475569;background:#f8fafc;border-radius:9px;padding:8px;margin:9px 0 0"></pre>
-      <div style="font-size:10px;color:#94a3b8;margin-top:8px;line-height:1.5">
-        1차 버전에서는 기존 localStorage 데이터를 보존합니다. 회원 Authentication/프로필 이전이 끝나면 다음 단계에서 안전제안·결재·상태 데이터를 Firestore로 이전합니다.
-      </div>`;
-    document.body.appendChild(panel);
-
-    panel.querySelector("#firebase-v1-close").onclick = () => { panel.style.display = "none"; };
-    panel.querySelector("#firebase-v1-check").onclick = () => checkFirebase(true);
-    panel.querySelector("#firebase-v1-migrate").onclick = () => migrateUsers();
+        <div id="firebase-v1-migration-info" style="font-size:11px;color:#475569;line-height:1.6;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px;margin-bottom:9px">Firebase 패널이 로드되었습니다.</div>
+        <div style="font-size:10px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px;margin-bottom:9px;line-height:1.5">이 패널은 Firebase 연결을 확인하기 위한 초기 설정용입니다. 회원 이전은 <b>admin</b>으로 로그인한 경우에만 실행됩니다.</div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <button id="firebase-v1-check" type="button" style="border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">연결 확인</button>
+          <button id="firebase-v1-migrate" type="button" style="border:0;background:#2563eb;color:#fff;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">기존 회원 Firebase 이전 (admin 전용)</button>
+        </div>
+        <pre id="firebase-v1-log" style="white-space:pre-wrap;max-height:180px;overflow:auto;font-size:10px;color:#475569;background:#f8fafc;border-radius:9px;padding:8px;margin:9px 0 0"></pre>
+        <div style="font-size:10px;color:#94a3b8;margin-top:8px;line-height:1.5">1차 버전에서는 기존 localStorage 데이터를 보존합니다. 회원 Authentication/프로필 이전이 끝나면 다음 단계에서 안전제안·결재·상태 데이터를 Firestore로 이전합니다.</div>`;
+      document.body.appendChild(panel);
+    }
+    if (!panel.dataset.bound) {
+      panel.dataset.bound = "1";
+      const close = panel.querySelector("#firebase-v1-close");
+      const check = panel.querySelector("#firebase-v1-check");
+      const migrate = panel.querySelector("#firebase-v1-migrate");
+      if (close) close.onclick = () => { panel.style.display = "none"; };
+      if (check) check.onclick = () => checkFirebase(true);
+      if (migrate) migrate.onclick = () => migrateUsers();
+    }
+    panel.style.display = "block";
+    return panel;
   }
 
   function writeLog(message) {
@@ -13624,6 +13632,33 @@ const app = {
   window.addEventListener("storage", (event) => {
     if (event.key === "gnp_users") refreshPanel();
   });
+</script>
+
+
+
+<!-- FIREBASE BOOTSTRAP VISIBLE PANEL (항상 표시) -->
+<aside id="firebase-v1-panel" data-bootstrap="1" style="position:fixed;right:18px;bottom:18px;z-index:2147483647;width:380px;max-width:calc(100vw - 36px);background:#fff;border:2px solid #2563eb;border-radius:14px;box-shadow:0 16px 40px rgba(15,23,42,.18);padding:14px;font-family:inherit;display:block">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+    <div><div style="font-size:13px;font-weight:900;color:#0f172a">Firebase 연결 상태</div><div id="firebase-v1-status" style="font-size:11px;color:#64748b;margin-top:3px">Firebase 초기화 대기 중...</div></div>
+    <button id="firebase-v1-close" type="button" style="border:0;background:transparent;color:#64748b;font-size:18px;cursor:pointer">×</button>
+  </div>
+  <div id="firebase-v1-migration-info" style="font-size:11px;color:#475569;line-height:1.6;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px;margin-bottom:9px">Firebase 패널 로딩 중...</div>
+  <div style="font-size:10px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px;margin-bottom:9px;line-height:1.5">연결 확인용 초기 패널입니다. 기존 회원 이전은 <b>admin</b>으로 로그인한 경우에만 실행됩니다.</div>
+  <div style="display:flex;gap:7px;flex-wrap:wrap">
+    <button id="firebase-v1-check" type="button" style="border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">연결 확인</button>
+    <button id="firebase-v1-migrate" type="button" style="border:0;background:#2563eb;color:#fff;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">기존 회원 Firebase 이전 (admin 전용)</button>
+  </div>
+  <pre id="firebase-v1-log" style="white-space:pre-wrap;max-height:180px;overflow:auto;font-size:10px;color:#475569;background:#f8fafc;border-radius:9px;padding:8px;margin:9px 0 0"></pre>
+</aside>
+<script>
+  (function(){
+    var p=document.getElementById('firebase-v1-panel');
+    if(!p) return;
+    var c=p.querySelector('#firebase-v1-close');
+    if(c) c.onclick=function(){p.style.display='none';};
+    var s=p.querySelector('#firebase-v1-status');
+    if(s) s.textContent='Firebase 스크립트 로딩을 기다리는 중...';
+  })();
 </script>
 
 </body>
