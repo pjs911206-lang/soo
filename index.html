@@ -8979,7 +8979,7 @@ const app = {
 (function () {
   if (typeof app === 'undefined' || !app.ai1 || !app.auth) return;
   const ai = app.ai1;
-  const isAdmin = () => !!(app.auth.currentUser && app.auth.currentUser.role === 'MASTER');
+  const isAdmin = () => { const u = app.auth.currentUser || {}; return u.id === 'admin' || ['MASTER','ADMIN'].includes(String(u.role || '')); };
   const escapeHtml = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 
   /* Guest는 별도 계정 등록 없이 즉시 안전제안 메뉴로 진입합니다. */
@@ -9279,8 +9279,14 @@ const app = {
       if(btn.dataset.stableBound) return;
       btn.dataset.stableBound='1';
       btn.addEventListener('click',()=>{
-        if(isGuest()) return;
+        const u = app.auth?.currentUser || {};
+        const admin = u.id === 'admin' || ['MASTER','ADMIN'].includes(String(u.role || ''));
+        if(!admin){
+          alert('운영 상태 변경은 관리자 계정에서만 가능합니다.');
+          return;
+        }
         localStorage.setItem('gnp_ai1_operating_period',btn.dataset.period);
+        localStorage.setItem('gnp_ai1_dashboard_period',btn.dataset.period);
         refreshDashboard();
       });
     });
