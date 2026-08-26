@@ -13279,7 +13279,7 @@ const app = {
     const panel = document.createElement("aside");
     panel.id = "firebase-v1-panel";
     panel.style.cssText = [
-      "position:fixed","right:18px","bottom:18px","z-index:99999","width:360px",
+      "position:fixed","right:18px","bottom:18px","z-index:2147483647","width:380px",
       "max-width:calc(100vw - 36px)","background:#fff","border:1px solid #cbd5e1",
       "border-radius:14px","box-shadow:0 16px 40px rgba(15,23,42,.18)","padding:14px",
       "display:none","font-family:inherit"
@@ -13287,15 +13287,15 @@ const app = {
     panel.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
         <div>
-          <div style="font-size:12px;font-weight:900;color:#0f172a">Firebase 연결</div>
+          <div style="font-size:13px;font-weight:900;color:#0f172a">Firebase 연결 상태</div>
           <div id="firebase-v1-status" style="font-size:11px;color:#64748b;margin-top:3px">확인 중...</div>
         </div>
         <button id="firebase-v1-close" type="button" style="border:0;background:transparent;color:#64748b;font-size:18px;cursor:pointer">×</button>
       </div>
-      <div id="firebase-v1-migration-info" style="font-size:11px;color:#475569;line-height:1.6;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px;margin-bottom:9px"></div>
+      <div id="firebase-v1-migration-info" style="font-size:11px;color:#475569;line-height:1.6;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px;margin-bottom:9px"></div><div style="font-size:10px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px;margin-bottom:9px;line-height:1.5">이 패널은 Firebase 연결을 확인하기 위한 초기 설정용입니다. 회원 이전은 <b>admin</b>으로 로그인한 경우에만 실행됩니다.</div>
       <div style="display:flex;gap:7px;flex-wrap:wrap">
         <button id="firebase-v1-check" type="button" style="border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">연결 확인</button>
-        <button id="firebase-v1-migrate" type="button" style="border:0;background:#2563eb;color:#fff;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">기존 회원 Firebase 이전</button>
+        <button id="firebase-v1-migrate" type="button" style="border:0;background:#2563eb;color:#fff;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">기존 회원 Firebase 이전 (admin 전용)</button>
       </div>
       <pre id="firebase-v1-log" style="white-space:pre-wrap;max-height:180px;overflow:auto;font-size:10px;color:#475569;background:#f8fafc;border-radius:9px;padding:8px;margin:9px 0 0"></pre>
       <div style="font-size:10px;color:#94a3b8;margin-top:8px;line-height:1.5">
@@ -13320,13 +13320,15 @@ const app = {
     ensurePanel();
     const panel = document.getElementById("firebase-v1-panel");
     if (!panel) return;
-    panel.style.display = isLegacyAdmin() ? "block" : "none";
+    panel.style.display = "block";
     const rows = getLegacyUsers();
     const map = getMigrationMap();
     const migrated = Object.keys(map).length;
     const info = document.getElementById("firebase-v1-migration-info");
     if (info) {
-      info.innerHTML = `현재 브라우저 회원: <b>${rows.length}</b>명<br>Firebase 이전 완료 표시: <b>${migrated}</b>명<br>Firebase 계정이 이미 존재하는 회원은 같은 비밀번호로 재연결할 수 있습니다.`;
+      const user = app?.auth?.currentUser;
+      const who = user ? `${user.id || ''}${user.role ? ` · ${user.role}` : ''}` : '로그인 전';
+      info.innerHTML = `현재 로그인: <b>${who}</b><br>현재 브라우저 회원: <b>${rows.length}</b>명<br>Firebase 이전 완료 표시: <b>${migrated}</b>명<br>Firebase 계정이 이미 존재하는 회원은 같은 비밀번호로 재연결할 수 있습니다.`;
     }
   }
 
