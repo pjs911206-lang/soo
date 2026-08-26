@@ -13294,14 +13294,14 @@ const app = {
           <button id="firebase-v1-close" type="button" style="border:0;background:transparent;color:#64748b;font-size:18px;cursor:pointer">×</button>
         </div>
         <div id="firebase-v1-migration-info" style="font-size:11px;color:#475569;line-height:1.6;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px;margin-bottom:9px">Firebase 패널이 로드되었습니다.</div>
-        <div style="font-size:10px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px;margin-bottom:9px;line-height:1.5">기존 회원 이전은 <b>admin</b>으로 로그인한 경우에만 실행됩니다. 6자리 미만 비밀번호는 임시 비밀번호를 자동 발급합니다.</div>
+        <div style="font-size:10px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px;margin-bottom:9px;line-height:1.5">회원 대량이전 파일은 <b>admin</b>으로 로그인한 경우에만 생성됩니다. 비밀번호 원문은 저장하지 않고 PBKDF2-SHA256 해시만 내보냅니다.</div>
         <div style="display:flex;gap:7px;flex-wrap:wrap">
           <button id="firebase-v1-check" type="button" style="border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">연결 확인</button>
-          <button id="firebase-v1-report" type="button" style="border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">임시비밀번호 다시 다운로드</button>
-          <button id="firebase-v1-migrate" type="button" style="border:0;background:#2563eb;color:#fff;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">기존 회원 Firebase 이전 (admin 전용)</button>
+          <button id="firebase-v1-report" type="button" style="display:none;border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">이전 보고서 다운로드</button>
+          <button id="firebase-v1-migrate" type="button" style="border:0;background:#2563eb;color:#fff;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">회원 Firebase 대량이전 파일 만들기</button>
         </div>
         <pre id="firebase-v1-log" style="white-space:pre-wrap;max-height:180px;overflow:auto;font-size:10px;color:#475569;background:#f8fafc;border-radius:9px;padding:8px;margin:9px 0 0"></pre>
-        <div style="font-size:10px;color:#94a3b8;margin-top:8px;line-height:1.5">1차 버전에서는 기존 localStorage 데이터를 보존합니다. 회원 Authentication/프로필 이전이 끝나면 다음 단계에서 안전제안·결재·상태 데이터를 Firestore로 이전합니다.</div>`;
+        <div style="font-size:10px;color:#94a3b8;margin-top:8px;line-height:1.5">이 버튼은 브라우저에서 평문 비밀번호를 PBKDF2-SHA256(100,000회)로 해시한 JSON을 만듭니다. JSON은 GitHub에 올리지 말고, 아래 제공된 Firebase Admin SDK 도구로 로컬에서 대량 import하세요.</div>`;
       document.body.appendChild(panel);
     }
     if (!panel.dataset.bound) {
@@ -13351,7 +13351,7 @@ const app = {
     if (info) {
       const user = app?.auth?.currentUser;
       const who = user ? `${user.id || ''}${user.role ? ` · ${user.role}` : ''}` : '로그인 전';
-      info.innerHTML = `현재 로그인: <b>${who}</b><br>현재 브라우저 회원: <b>${rows.length}</b>명<br>Firebase 이전 완료 표시: <b>${migrated}</b>명<br>기존 비밀번호가 6자리 이상이면 그대로 사용하고, 6자리 미만은 임시 비밀번호를 자동 생성합니다.`;
+      info.innerHTML = `현재 로그인: <b>${who}</b><br>현재 브라우저 회원: <b>${rows.length}</b>명<br>Firebase 이전 완료 표시: <b>${migrated}</b>명<br>회원 수: Firebase 대량이전용 JSON으로 내보낼 수 있습니다. 평문 비밀번호는 내보내지 않습니다.`;
     }
   }
 
@@ -13475,7 +13475,7 @@ const app = {
 
   async function migrateUsers() {
     if (!isLegacyAdmin()) {
-      alert("관리자(admin) 계정으로 로그인한 상태에서만 기존 회원 이전을 시작할 수 있습니다.");
+      alert("관리자(admin) 계정으로 로그인한 상태에서만 Firebase 대량이전 파일을 만들 수 있습니다.");
       return;
     }
     if (!await checkFirebase(false)) return;
@@ -13485,50 +13485,91 @@ const app = {
       alert("현재 브라우저에 이전할 회원 데이터가 없습니다.");
       return;
     }
-    if (!confirm(`현재 회원 ${rows.length}명을 Firebase Authentication + Firestore users로 이전합니다.\n\n- 기존 비밀번호가 6자리 이상이면 기존 비밀번호를 유지합니다.\n- 6자리 미만이면 임시 비밀번호를 새로 생성합니다.\n- 임시 비밀번호는 완료 후 CSV로 다운로드할 수 있습니다.\n- 기존 localStorage 데이터는 삭제하지 않습니다.\n\n진행할까요?`)) return;
+    if (!confirm(`현재 회원 ${rows.length}명의 Firebase 대량이전 파일을 생성합니다.\n\n- 비밀번호 원문은 파일에 저장하지 않습니다.\n- 각 비밀번호를 브라우저에서 PBKDF2-SHA256(100,000회)로 해시합니다.\n- 생성된 JSON은 Firebase Admin SDK 대량 import용입니다.\n- 기존 localStorage 데이터는 삭제되지 않습니다.\n\n진행할까요?`)) return;
 
     const button = document.getElementById("firebase-v1-migrate");
-    if (button) { button.disabled = true; button.textContent = "이전 중..."; }
-    writeLog(`회원 ${rows.length}명 이전 시작`);
-    const map = getMigrationMap();
-    const credentialReport = [];
-    let ok = 0, pending = 0, failed = 0;
+    if (button) { button.disabled = true; button.textContent = "보안 이전파일 생성 중..."; }
 
-    for (const row of rows) {
-      try {
-        const result = await createOrFindFirebaseUser(row);
-        await writeUserProfile(result.uid, row, result.email);
-        map[String(row.id)] = {
-          uid: result.uid,
-          email: result.email,
-          migratedAt: new Date().toISOString(),
-          temporaryPassword: !!result.temporaryPassword
+    try {
+      const out = {
+        schemaVersion: 2,
+        projectId: firebaseConfig.projectId,
+        generatedAt: new Date().toISOString(),
+        hash: { algorithm: "PBKDF2_SHA256", rounds: 100000 },
+        source: "GNP HSE localStorage gnp_users",
+        users: []
+      };
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const legacyId = String(row?.id || "").trim();
+        if (!legacyId) continue;
+
+        const password = String(row?.pw || "");
+        if (!password) {
+          writeLog(`△ ${legacyId}: 비밀번호가 없어 이전 파일에서 제외`);
+          continue;
+        }
+
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const key = await crypto.subtle.importKey(
+          "raw",
+          new TextEncoder().encode(password),
+          "PBKDF2",
+          false,
+          ["deriveBits"]
+        );
+        const bits = await crypto.subtle.deriveBits(
+          { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+          key,
+          256
+        );
+        const b64 = (bytes) => {
+          let s = "";
+          for (const b of bytes) s += String.fromCharCode(b);
+          return btoa(s);
         };
-        saveMigrationMap(map);
-        credentialReport.push({ id: String(row.id || ""), email: result.email, password: result.password, temporaryPassword: !!result.temporaryPassword });
-        ok += 1;
-        writeLog(`✓ ${row.id} → ${result.email} (${result.created ? "신규" : "기존 계정 연결"}${result.temporaryPassword ? ", 임시비밀번호 발급" : ", 기존 비밀번호 유지"})`);
-      } catch (error) {
-        if (error?.code === "existing-account-needs-reset" || error?.code === "existing-account-login-failed") {
-          pending += 1;
-          writeLog(`△ ${row.id}: 이미 Firebase 계정이 있어 자동 연결 보류 · ${error.message}`);
-        } else {
-          failed += 1;
-          writeLog(`✕ ${row.id}: ${error.message || error}`);
+
+        out.users.push({
+          legacyId,
+          name: String(row?.name || legacyId),
+          team: String(row?.team || "미지정"),
+          role: String(row?.role || (legacyId === "admin" ? "HSE" : "반원")),
+          modules: Array.isArray(row?.modules) ? row.modules : [],
+          active: row?.active !== false,
+          isMaster: legacyId === "admin",
+          email: await internalEmail(legacyId),
+          passwordHash: b64(new Uint8Array(bits)),
+          passwordSalt: b64(salt)
+        });
+
+        if ((i + 1) % 5 === 0) {
+          writeLog(`해시 생성 ${i + 1}/${rows.length}`);
+          await new Promise(r => requestAnimationFrame(() => r()));
         }
       }
-    }
 
-    refreshPanel();
-    if (button) { button.disabled = false; button.textContent = "기존 회원 Firebase 이전"; }
-    if (credentialReport.length) {
-      downloadMigrationCredentials(credentialReport.filter(x => x.temporaryPassword));
-      sessionStorage.setItem("gnp_firebase_migration_last_report", JSON.stringify({ createdAt: new Date().toISOString(), items: credentialReport }));
+      const jsonText = JSON.stringify(out, null, 2);
+      const blob = new Blob([jsonText], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `GNP_HSE_Firebase_회원대량이전_${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+
+      writeLog(`✓ 회원 ${out.users.length}명 대량이전 JSON 생성 완료 · 평문 비밀번호 미포함`);
+      alert(`Firebase 대량이전 파일 생성 완료\n\n회원 ${out.users.length}명\nPBKDF2-SHA256 100,000회로 비밀번호를 해시했습니다.\n\n이제 다운로드된 JSON을 Firebase Admin SDK 대량이전 도구에서 사용하면 됩니다.\n기존 localStorage 데이터는 삭제되지 않았습니다.`);
+    } catch (error) {
+      console.error(error);
+      writeLog(`✕ 대량이전 파일 생성 오류: ${error.message || error}`);
+      alert(`대량이전 파일 생성 중 오류가 발생했습니다.\n${error.message || error}`);
+    } finally {
+      if (button) { button.disabled = false; button.textContent = "회원 Firebase 대량이전 파일 만들기"; }
+      refreshPanel();
     }
-    const tempCount = credentialReport.filter(x => x.temporaryPassword).length;
-    const summary = `회원 이전 완료\n\n성공: ${ok}명\n임시 비밀번호 발급: ${tempCount}명\n보류: ${pending}명\n오류: ${failed}명\n\n임시 비밀번호가 있는 경우 CSV 파일이 자동으로 다운로드됩니다.\n기존 localStorage 데이터는 삭제되지 않았습니다.`;
-    writeLog(`이전 종료 · 성공 ${ok}, 임시비밀번호 ${tempCount}, 보류 ${pending}, 오류 ${failed}`);
-    alert(summary);
   }
 
   async function loadFirebaseProfile(firebaseUser) {
@@ -13710,11 +13751,11 @@ const app = {
     <button id="firebase-v1-close" type="button" style="border:0;background:transparent;color:#64748b;font-size:18px;cursor:pointer">×</button>
   </div>
   <div id="firebase-v1-migration-info" style="font-size:11px;color:#475569;line-height:1.6;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px;margin-bottom:9px">Firebase 패널 로딩 중...</div>
-  <div style="font-size:10px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px;margin-bottom:9px;line-height:1.5">기존 회원 이전은 <b>admin</b>으로 로그인한 경우에만 실행됩니다. 6자리 미만 비밀번호는 임시 비밀번호를 자동 발급합니다.</div>
+  <div style="font-size:10px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px;margin-bottom:9px;line-height:1.5">회원 대량이전 파일은 <b>admin</b>으로 로그인한 경우에만 생성됩니다. 비밀번호 원문은 저장하지 않고 PBKDF2-SHA256 해시만 내보냅니다.</div>
   <div style="display:flex;gap:7px;flex-wrap:wrap">
     <button id="firebase-v1-check" type="button" style="border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">연결 확인</button>
-          <button id="firebase-v1-report" type="button" style="border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">임시비밀번호 다시 다운로드</button>
-    <button id="firebase-v1-migrate" type="button" style="border:0;background:#2563eb;color:#fff;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">기존 회원 Firebase 이전 (admin 전용)</button>
+          <button id="firebase-v1-report" type="button" style="display:none;border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">이전 보고서 다운로드</button>
+    <button id="firebase-v1-migrate" type="button" style="border:0;background:#2563eb;color:#fff;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">회원 Firebase 대량이전 파일 만들기</button>
   </div>
   <pre id="firebase-v1-log" style="white-space:pre-wrap;max-height:180px;overflow:auto;font-size:10px;color:#475569;background:#f8fafc;border-radius:9px;padding:8px;margin:9px 0 0"></pre>
 </aside>
