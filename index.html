@@ -13640,12 +13640,20 @@ const app = {
     if (!fbApp || !fbAuth || !fbDb) throw new Error("Firebase가 아직 초기화되지 않았습니다.");
     if (!fbAuth.currentUser) throw new Error("관리자 Firebase 로그인 세션이 없습니다. 다시 로그인해 주세요.");
 
-    // Auth 계정 삭제는 Admin SDK가 필요한 작업이므로 브라우저에서 직접 처리하지 않습니다.
-    // Callable Function이 관리자 토큰을 검증한 뒤 Auth + Firestore를 원자적으로 정리합니다.
     const functions = getFunctions(fbApp, "asia-northeast3");
     const callable = httpsCallable(functions, "deleteMemberAccount");
-    const result = await callable({ legacyId: String(legacyId || "").trim() });
-    return result?.data || { ok: true };
+    try {
+      const result = await callable({ legacyId: String(legacyId || "").trim() });
+      return result?.data || { ok: true };
+    } catch (error) {
+      console.error("deleteMemberAccount callable failed", error);
+      const code = String(error?.code || "");
+      const message = String(error?.message || "");
+      if (code.includes("functions/not-found") || code.includes("functions/unavailable")) {
+        throw new Error("회원 삭제 서버 함수(deleteMemberAccount)가 배포되지 않았거나 리전(asia-northeast3)이 다릅니다. Firebase Functions를 다시 배포해 주세요.");
+      }
+      throw new Error(message || code || "회원 삭제 서버 함수 호출에 실패했습니다.");
+    }
   }
 
   async function patchAuth() {
