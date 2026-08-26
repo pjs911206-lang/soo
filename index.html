@@ -9021,7 +9021,7 @@ const app = {
       notice = document.createElement('div');
       notice.id = 'ai1-guest-notice';
       notice.className = 'ai1-guest-notice';
-      notice.textContent = 'Guest 모드 · 제안 등록·조회·인쇄 가능 / 상태 변경·수정·삭제·Excel 다운로드는 관리자 전용';
+      notice.textContent = 'Guest 모드 · 제안 등록·조회·인쇄 가능 / 상태 변경·수정·삭제는 관리자 전용 / Excel 다운로드는 HSE 지정 계정 전용';
       target.insertBefore(notice, target.firstChild);
     }
   }
@@ -9035,8 +9035,12 @@ const app = {
 
     const excel = document.getElementById('ai1-export-excel');
     if (excel) {
-      excel.style.display = admin ? '' : 'none';
-      excel.setAttribute('aria-hidden', admin ? 'false' : 'true');
+      const u = app.auth.currentUser || {};
+      const isHSE = String(u.role || '') === 'HSE' || ['박종수','신제우','이정숙','박신환','admin'].includes(String(u.id || '').trim());
+      excel.style.display = isHSE ? '' : 'none';
+      excel.setAttribute('aria-hidden', isHSE ? 'false' : 'true');
+      excel.disabled = !isHSE;
+      excel.title = isHSE ? '안전제안 관리 목록을 Excel 파일로 다운로드합니다.' : 'HSE 권한 사용자만 사용할 수 있습니다.';
     }
 
     /* 운영 상태 버튼: 관리자만 선택/변경 가능 */
@@ -9073,14 +9077,21 @@ const app = {
     return result;
   };
 
-  /* Guest가 개발자 도구 등으로 숨은 버튼 이벤트를 실행하는 것을 UI 레벨에서 한 번 더 차단합니다. */
+  /* Guest가 개발자 도구 등으로 숨은 버튼 이벤트를 실행하는 것을 UI 레벨에서 차단합니다.
+     Excel 다운로드는 별도로 지정된 HSE 계정(박종수/신제우/이정숙/박신환/admin)도 허용합니다. */
+  const isExcelAllowedUser = () => {
+    const u = app.auth?.currentUser || {};
+    const id = String(u.id || '').trim();
+    const role = String(u.role || '').trim();
+    return role === 'HSE' || ['박종수','신제우','이정숙','박신환','admin'].includes(id);
+  };
   document.addEventListener('click', function (event) {
-    if (isAdmin()) return;
+    if (isAdmin() || isExcelAllowedUser()) return;
     const statusButton = event.target.closest?.('.ai1-status-change-custom, .ai1-period-btn, #ai1-export-excel');
     if (statusButton) {
       event.preventDefault();
       event.stopImmediatePropagation();
-      alert('이 기능은 관리자 모드에서만 사용할 수 있습니다.');
+      alert('이 기능은 권한이 없는 계정에서 사용할 수 없습니다.');
     }
   }, true);
 
@@ -13045,6 +13056,130 @@ const app = {
       return result;
     };
   }
+})();
+</script>
+
+
+<!-- FINAL HSE EXCEL EXPORT PATCH -->
+<script id="final-hse-excel-export-patch">
+(function(){
+  'use strict';
+  const ALLOWED_EXCEL_IDS = new Set(['박종수','신제우','이정숙','박신환','admin']);
+  const getUser=()=>window.app && app.auth ? (app.auth.currentUser || {}) : {};
+  const getDisplayedUserId=()=>{
+    const el=document.getElementById('user-info');
+    return el ? String(el.textContent||'').split('(')[0].trim() : '';
+  };
+  const isHSE=()=>{
+    const u=getUser();
+    const candidates=[u.id,u.name,getDisplayedUserId()].map(v=>String(v||'').trim()).filter(Boolean);
+    const role=String(u.role||'').trim().toUpperCase();
+    if(role==='HSE' || role==='MASTER' || role==='ADMIN') return true;
+    return candidates.some(v=>ALLOWED_EXCEL_IDS.has(v));
+  };
+  const esc=v=>{
+    if(v===null || v===undefined) return '';
+    return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  };
+  const normalizeScore=item=>{
+    try{
+      const normalized=(app.ai1 && typeof app.ai1.normalizeScores==='function') ? app.ai1.normalizeScores(item.scores||{}) : (item.scores||{});
+      const total=normalized && normalized.total!=null ? normalized.total : '';
+      return total==='' ? '' : `${total} / 10`;
+    }catch(_){ return ''; }
+  };
+  const currentRows=()=>{
+    const all=(app.ai1 && typeof app.ai1.getData==='function') ? app.ai1.getData() : [];
+    // 화면의 검색/필터와 동일한 데이터셋을 우선 사용합니다.
+    let rows=all;
+    try{ if(app.ai1 && typeof app.ai1.getFilteredData==='function') rows=app.ai1.getFilteredData(); }catch(_){ rows=all; }
+    return Array.isArray(rows) ? rows : [];
+  };
+  function buildMatrix(items){
+    const header=['등록일','사업장/장소','위치','작성자','위험유형','문제점','개선대책','평가','상태','반장/조장 결재','팀장 결재','HSE 결재','파트장 결재','최종 결재'];
+    const body=items.map(item=>{
+      const a=item.approvals||{};
+      return [
+        item.date||'', item.site||'', item.location||'', item.author||'',
+        (typeof app.ai1?.normalizeRiskType==='function' ? app.ai1.normalizeRiskType(item.type) : (item.type||'')),
+        item.current||'', item.measure||'', normalizeScore(item), item.status||'검토대기',
+        a.foreman ? `${a.foreman.name||''} (${a.foreman.date||''})` : '',
+        a.teamLeader ? `${a.teamLeader.name||''} (${a.teamLeader.date||''})` : '',
+        a.hse ? `${a.hse.name||''} (${a.hse.date||''})` : '',
+        a.partLeader ? `${a.partLeader.name||''} (${a.partLeader.date||''})` : '',
+        a.hseTeamLeader ? `${a.hseTeamLeader.name||''} (${a.hseTeamLeader.date||''})` : ''
+      ];
+    });
+    return [header,...body];
+  }
+  function downloadExcel(){
+    if(!isHSE()){
+      alert('Excel 다운로드는 HSE 권한 사용자만 사용할 수 있습니다.');
+      return;
+    }
+    const items=currentRows();
+    if(!items.length){ alert('다운로드할 안전제안 자료가 없습니다.'); return; }
+    try{
+      const matrix=buildMatrix(items);
+      const escXml=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+      const widths=[2600,2600,3600,2200,2600,6500,6500,1800,1800,3600,3600,3600,3600,3600];
+      let xml='<?xml version="1.0" encoding="UTF-8"?>';
+      xml+='<?mso-application progid="Excel.Sheet"?>';
+      xml+='<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">';
+      xml+='<Styles><Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1E40AF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/></Style><Style ss:ID="Body"><Alignment ss:Vertical="Top" ss:WrapText="1"/></Style></Styles>';
+      xml+='<Worksheet ss:Name="안전제안"><Table>';
+      widths.forEach(w=>{xml+=`<Column ss:Width="${w/6}"/>`;});
+      matrix.forEach((row,ridx)=>{
+        xml+=`<Row${ridx===0?' ss:AutoFitHeight="0"':''}>`;
+        row.forEach(cell=>{xml+=`<Cell${ridx===0?' ss:StyleID="Header"':' ss:StyleID="Body"'}><Data ss:Type="String">${escXml(cell)}</Data></Cell>`;});
+        xml+='</Row>';
+      });
+      xml+='</Table></Worksheet></Workbook>';
+      const blob=new Blob(['\ufeff',xml],{type:'application/vnd.ms-excel;charset=utf-8'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      const stamp=new Date().toISOString().slice(0,10).replace(/-/g,'');
+      a.href=url; a.download=`안전제안_관리목록_${stamp}.xls`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+    }catch(err){
+      console.error('Excel export failed',err);
+      alert('Excel 파일 생성 중 오류가 발생했습니다.');
+    }
+  }
+  function syncButton(){
+    const btn=document.getElementById('ai1-export-excel');
+    if(!btn) return;
+    const allowed=isHSE();
+    btn.style.display=allowed?'':'none';
+    btn.disabled=!allowed;
+    btn.setAttribute('aria-hidden',allowed?'false':'true');
+    btn.title=allowed?'안전제안 관리 목록을 Excel 파일로 다운로드합니다.':'HSE 권한 사용자만 사용할 수 있습니다.';
+    if(!btn.dataset.hseExportBound){
+      btn.dataset.hseExportBound='1';
+      btn.onclick = function(e){
+        if(e){ e.preventDefault(); e.stopPropagation(); }
+        downloadExcel();
+        return false;
+      };
+    }
+  }
+  const boot=()=>{
+    syncButton();
+    setTimeout(syncButton,0);
+    setTimeout(syncButton,300);
+  };
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
+  window.addEventListener('storage',e=>{ if(e.key==='gnp_users') syncButton(); });
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden) syncButton(); });
+  if(window.app && app.auth){
+    const originalLogin=app.auth.login;
+    if(typeof originalLogin==='function' && !app.auth.__hseExcelLoginWrapped){
+      app.auth.__hseExcelLoginWrapped=true;
+      app.auth.login=function(){ const r=originalLogin.apply(this,arguments); setTimeout(syncButton,0); setTimeout(syncButton,300); return r; };
+    }
+  }
+  window.hseExcelExport={download:downloadExcel,sync:syncButton};
 })();
 </script>
 
