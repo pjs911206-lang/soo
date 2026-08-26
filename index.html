@@ -8842,9 +8842,13 @@ const app = {
     if (nextStatus === '조치중') {
       fields = `
         <div>
+          <label class="mb-1 block text-sm font-bold text-slate-700">조치자 <span class="text-red-600">*</span></label>
+          <input id="ai1-action-owner-final" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value="${esc(item.actionOwner || '')}" placeholder="조치자명">
+        </div>
+        <div>
           <label class="mb-1 block text-sm font-bold text-slate-700">조치 기한 <span class="text-red-600">*</span></label>
           <input id="ai1-action-due-date" type="date" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value="${esc(item.dueDate || item.actionDueDate || item.deadline || '')}">
-          <p class="mt-1 text-xs text-slate-500">입력한 날짜는 목록의 ‘조치 기한’ 검색에 반영됩니다.</p>
+          <p class="mt-1 text-xs text-slate-500">입력한 조치자와 조치 기한은 안전제안 관리 화면에도 즉시 반영됩니다.</p>
         </div>`;
     } else if (nextStatus === '완료') {
       fields = `
@@ -8868,6 +8872,10 @@ const app = {
     statusModal.setAttribute('aria-hidden', 'false');
   }
 
+  // 전체보기에서도 관리 페이지와 동일한 상태변경 모달을 사용합니다.
+  window.__openSafetyStatusModal = openStatusModal;
+  window.__closeSafetyStatusModal = closeStatusModal;
+
   $('ai1-deadline-modal-close').addEventListener('click', closeStatusModal);
   $('ai1-deadline-modal-cancel').addEventListener('click', closeStatusModal);
   statusModal.addEventListener('click', event => { if (event.target === statusModal) closeStatusModal(); });
@@ -8879,11 +8887,12 @@ const app = {
 
     const changedBy = $('ai1-deadline-changed-by').value.trim() || item.author || '담당자';
     const dueDate = $('ai1-action-due-date')?.value || '';
-    const actionOwner = $('ai1-action-owner-final')?.value.trim() || '';
+    const actionOwner = $('ai1-action-owner-final')?.value.trim() || $('ai1-action-owner')?.value.trim() || '';
+    const actionDate = $('ai1-action-date-final')?.value || $('ai1-action-date')?.value || '';
     const completedAt = $('ai1-completed-date-final')?.value || '';
     const rejectionReason = $('ai1-rejection-reason-final')?.value.trim() || '';
 
-    if (pending.nextStatus === '조치중' && !dueDate) return alert('조치 기한을 입력해 주세요.');
+    if (pending.nextStatus === '조치중' && (!actionOwner || !dueDate)) return alert('조치자와 조치 기한을 입력해 주세요.');
     if (pending.nextStatus === '완료' && (!actionOwner || !completedAt)) return alert('조치 담당자와 완료일을 입력해 주세요.');
     if (pending.nextStatus === '반려' && !rejectionReason) return alert('반려 사유를 입력해 주세요.');
 
@@ -8891,6 +8900,8 @@ const app = {
     item.status = pending.nextStatus;
     item.changedBy = changedBy;
     if (pending.nextStatus === '조치중') {
+      item.actionOwner = actionOwner;
+      item.actionDate = actionDate || dueDate;
       item.dueDate = dueDate;
       item.actionDueDate = dueDate;
       item.deadline = dueDate;
@@ -8908,13 +8919,16 @@ const app = {
       changedAt: new Date().toLocaleString('ko-KR'),
       changedBy,
       dueDate: pending.nextStatus === '조치중' ? dueDate : '',
-      actionOwner: pending.nextStatus === '완료' ? actionOwner : '',
+      actionDate: pending.nextStatus === '조치중' ? (actionDate || dueDate) : '',
+      actionOwner: (pending.nextStatus === '조치중' || pending.nextStatus === '완료') ? actionOwner : '',
       completedAt: pending.nextStatus === '완료' ? completedAt : '',
       reason: pending.nextStatus === '반려' ? rejectionReason : ''
     });
     ai.saveData(list);
     closeStatusModal();
     ai.render();
+    // 현재 열린 전체보기에도 즉시 동일 데이터를 다시 그립니다.
+    setTimeout(() => { try { app.ai1.showMeasure(item.id); } catch (_) {} }, 0);
   });
 
   function getRowId(row) {
@@ -11562,6 +11576,14 @@ const app = {
     ai.saveData(list);
     close();
     ai.render();
+    // 상태 저장 후 전체보기 화면을 닫지 않고 최신 상태/상세 필드를 즉시 갱신
+    setTimeout(function(){
+      try {
+        app.ai1.showMeasure(pending.id);
+      } catch (e) {
+        console.warn('status detail live refresh:', e);
+      }
+    }, 0);
   };
 
   /* 전체보기에서 상태별 입력 내용을 확인할 수 있도록 표시 */
@@ -12712,7 +12734,8 @@ const app = {
     const allowEval = ['반장','조장','팀장','HSE'].includes(canonicalRole(app.auth.currentUser||{})) &&
       sameTeam(item);
     const role=canonicalRole(app.auth.currentUser||{});
-    const allowStatus = role==='HSE';
+    // 반장/조장/팀장도 전체보기에서 기존 상태(검토대기/조치중/완료/반려)를 변경할 수 있습니다.
+    const allowStatus = ['반장','조장','팀장','HSE'].includes(role) && sameTeam(item);
     box.innerHTML='';
     if(allowEval){
       const b=document.createElement('button');
@@ -12772,6 +12795,256 @@ const app = {
     if(t && t.matches('select[id^="spr-role-"]')) syncSoon();
   });
 
+})();
+</script>
+
+
+<!-- FINAL STRICT TEAM APPROVAL VISIBILITY PATCH -->
+<script id="final-strict-team-approval-visibility">
+(function(){
+  if(typeof app==='undefined' || !app.ai1 || !app.auth) return;
+  const HSE_IDS=new Set(['박종수','신제우']);
+  const PART_LEADER='이정숙';
+  const FINAL_LEADER='박신환';
+  const FOREMAN_ROLES=new Set(['반장','조장']);
+  const normalizeRole=(u)=>{
+    const id=String(u?.id||'');
+    if(HSE_IDS.has(id) || id==='admin' || ['MASTER','ADMIN'].includes(String(u?.role||''))) return 'HSE';
+    if(id===PART_LEADER) return '파트장';
+    if(id===FINAL_LEADER) return '팀장';
+    const allowed=new Set(['HSE','파트장','팀장','반장','조장','반원','사원','대리','과장','차장','부장']);
+    return allowed.has(String(u?.role||'')) ? String(u.role) : '반원';
+  };
+  const me=()=>app.auth.currentUser||{};
+  const role=()=>normalizeRole(me());
+  const strictSameTeam=(item)=>{
+    const u=me();
+    const r=role();
+    // HSE 및 지정 특수 결재자는 전사 범위
+    if(HSE_IDS.has(String(u.id)) || String(u.id)==='admin' || r==='HSE' || String(u.id)===PART_LEADER || String(u.id)===FINAL_LEADER) return true;
+    // 일반 결재자(반장/조장/팀장)는 반드시 소속팀 일치 + 미지정 차단
+    if(!(FOREMAN_ROLES.has(r) || r==='팀장')) return false;
+    const ut=String(u.team||'').trim();
+    const it=String(item?.team||'').trim();
+    if(!ut || !it || ut==='미지정' || it==='미지정') return false;
+    return ut===it;
+  };
+  const stage=(item)=>{
+    const a=item?.approvals||{};
+    const u=me(), id=String(u.id||''), r=role();
+    if(HSE_IDS.has(id) || id==='admin' || r==='HSE') return a.hse?'':'hse';
+    if(id===PART_LEADER) return a.hse && !a.partLeader ? 'partLeader' : '';
+    if(id===FINAL_LEADER) return a.partLeader && !a.hseTeamLeader ? 'hseTeamLeader' : '';
+    if(FOREMAN_ROLES.has(r)) return a.foreman?'':'foreman';
+    if(r==='팀장') return a.foreman && !a.teamLeader ? 'teamLeader' : '';
+    return '';
+  };
+  const canApprove=(item)=>!!item && strictSameTeam(item) && !!stage(item);
+  const label=(st)=>({foreman:'반장',teamLeader:'팀장',hse:'HSE',partLeader:'파트장',hseTeamLeader:'팀장'}[st]||'결재');
+
+  // 마지막 렌더 단계에서 타 팀 결재 버튼을 모두 제거하고, 현재 사용자에게 허용된 경우에만 다시 생성
+  const baseRender=app.ai1.render.bind(app.ai1);
+  app.ai1.render=function(){
+    const result=baseRender.apply(this,arguments);
+    try{
+      const filtered=this.getFilteredData ? this.getFilteredData() : this.getData();
+      const size=this.pageSize||10, page=this.page||1;
+      const items=filtered.slice((page-1)*size,page*size);
+      const rows=document.querySelectorAll('#ai1-table tbody tr, #ai1-table > tr');
+      items.forEach((item,idx)=>{
+        const row=rows[idx]; if(!row) return;
+        row.querySelectorAll('button').forEach(btn=>{
+          if((btn.textContent||'').includes('결재하기')) btn.remove();
+        });
+        if(!canApprove(item)) return;
+        const box=row.querySelector('td:last-child div') || row.lastElementChild;
+        if(!box) return;
+        const b=document.createElement('button');
+        b.type='button';
+        b.className='rounded-lg border border-emerald-200 px-2 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50';
+        b.textContent=label(stage(item))+' 결재하기';
+        b.addEventListener('click',()=>window.safetyRole.approve(item.id));
+        box.appendChild(b);
+      });
+    }catch(e){ console.warn('strict team approval render patch:',e); }
+    return result;
+  };
+
+  // 전체보기에서도 동일한 팀 제한을 적용
+  if(typeof window.refreshFullViewButtons==='function'){
+    // 기존 함수가 전역에 노출된 경우에는 아래 showMeasure 래퍼가 최종적으로 정리
+  }
+  const baseShow=app.ai1.showMeasure.bind(app.ai1);
+  app.ai1.showMeasure=function(id){
+    const result=baseShow(id);
+    try{
+      const item=app.ai1.getData().find(x=>String(x.id)===String(id));
+      const box=document.getElementById('ai1-preview-action-buttons');
+      if(!item || !box) return result;
+      box.querySelectorAll('button').forEach(btn=>{
+        if((btn.textContent||'').includes('결재하기')) btn.remove();
+      });
+      if(canApprove(item)){
+        const b=document.createElement('button');
+        b.type='button';
+        b.className='px-3 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50';
+        b.innerHTML='<i class="fas fa-check mr-1"></i>'+label(stage(item))+' 결재하기';
+        b.onclick=()=>window.safetyRole.approve(item.id);
+        box.appendChild(b);
+      }
+    }catch(e){ console.warn('strict team full-view patch:',e); }
+    return result;
+  };
+
+  // 결재 함수도 마지막 방어선으로 재검증
+  const previousApprove=window.safetyRole?.approve;
+  if(window.safetyRole && previousApprove){
+    window.safetyRole.approve=function(id){
+      const item=app.ai1.getData().find(x=>String(x.id)===String(id));
+      if(!item) return alert('안전제안을 찾을 수 없습니다.');
+      if(!strictSameTeam(item)){
+        const u=me();
+        return alert(`본인 소속팀(${u.team||'미지정'})의 제안만 결재할 수 있습니다. 다른 팀 및 미지정 제안은 결재할 수 없습니다.`);
+      }
+      if(!stage(item)) return alert('현재 계정이 결재할 수 있는 단계가 아닙니다.');
+      return previousApprove(id);
+    };
+  }
+
+  setTimeout(()=>{ try{app.ai1.render();}catch(e){} },0);
+})();
+</script>
+
+
+<!-- FINAL LIVE DETAIL SYNC PATCH -->
+<script id="final-live-detail-sync-patch">
+(function(){
+  if (typeof app === 'undefined' || !app.ai1 || !app.auth) return;
+
+  const HSE_IDS = new Set(['박종수','신제우']);
+  const PART_LEADER = '이정숙';
+  const FINAL_LEADER = '박신환';
+  const FOREMAN_ROLES = new Set(['반장','조장']);
+  const roleOf = (u) => {
+    u = u || {};
+    const id = String(u.id || '');
+    if (HSE_IDS.has(id) || id === 'admin' || ['MASTER','ADMIN'].includes(String(u.role || ''))) return 'HSE';
+    if (id === PART_LEADER) return '파트장';
+    if (id === FINAL_LEADER) return '팀장';
+    return String(u.role || '반원');
+  };
+  const me = () => app.auth.currentUser || {};
+  const strictSameTeam = (item) => {
+    const u = me(), r = roleOf(u);
+    if (HSE_IDS.has(String(u.id)) || String(u.id) === 'admin' || r === 'HSE' || String(u.id) === PART_LEADER || String(u.id) === FINAL_LEADER) return true;
+    if (!(FOREMAN_ROLES.has(r) || r === '팀장')) return false;
+    const ut = String(u.team || '').trim();
+    const it = String(item && item.team || '').trim();
+    if (!ut || !it || ut === '미지정' || it === '미지정') return false;
+    return ut === it;
+  };
+  const stageFor = (item) => {
+    const a = item && item.approvals || {};
+    const u = me(), id = String(u.id || ''), role = roleOf(u);
+    if (HSE_IDS.has(id) || id === 'admin' || role === 'HSE') return a.hse ? '' : 'hse';
+    if (id === PART_LEADER) return a.hse && !a.partLeader ? 'partLeader' : '';
+    if (id === FINAL_LEADER) return a.partLeader && !a.hseTeamLeader ? 'hseTeamLeader' : '';
+    if (FOREMAN_ROLES.has(role)) return a.foreman ? '' : 'foreman';
+    if (role === '팀장') return a.foreman && !a.teamLeader ? 'teamLeader' : '';
+    return '';
+  };
+  const stageLabel = (stage) => ({foreman:'반장',teamLeader:'팀장',hse:'HSE',partLeader:'파트장',hseTeamLeader:'팀장'}[stage] || '결재');
+
+  function syncOpenPreview(id){
+    const modal = document.getElementById('ai1-measure-modal');
+    if (!modal) return;
+    const item = app.ai1.getData().find(x => String(x.id) === String(id));
+    if (!item) return;
+    // 전체보기 내용을 현재 저장된 데이터로 다시 그려 승인/상태 상세까지 즉시 반영
+    try { app.ai1.showMeasure(item.id); } catch (e) { console.warn('preview live sync failed:', e); }
+  }
+
+  // 기존 결재 함수를 감싸서 저장 직후 현재 열려 있는 전체보기까지 즉시 새로고침
+  const prevApprove = window.safetyRole && window.safetyRole.approve;
+  if (typeof prevApprove === 'function' && !window.safetyRole.__liveDetailApprovePatch) {
+    window.safetyRole.__liveDetailApprovePatch = true;
+    window.safetyRole.approve = function(id){
+      const before = app.ai1.getData().find(x => String(x.id) === String(id));
+      const beforeApprovals = JSON.stringify(before && before.approvals || {});
+      const result = prevApprove.apply(this, arguments);
+      setTimeout(function(){
+        const after = app.ai1.getData().find(x => String(x.id) === String(id));
+        if (!after) return;
+        if (JSON.stringify(after.approvals || {}) !== beforeApprovals) {
+          syncOpenPreview(id);
+        }
+      }, 0);
+      return result;
+    };
+  }
+
+  // 전체보기 버튼을 최종적으로 정리: 평가 / 상태변경 / 결재는 각 종류당 정확히 1개만 표시
+  const prevShow = app.ai1.showMeasure.bind(app.ai1);
+  if (!app.ai1.__liveDetailShowPatchV2) {
+    app.ai1.__liveDetailShowPatchV2 = true;
+    app.ai1.showMeasure = function(id){
+      const result = prevShow(id);
+      setTimeout(function(){
+        const item = app.ai1.getData().find(x => String(x.id) === String(id));
+        const box = document.getElementById('ai1-preview-action-buttons');
+        if (!item || !box) return;
+
+        // 이전 패치에서 생성한 중복 결재/상태변경 버튼을 모두 제거합니다.
+        box.querySelectorAll('button, select').forEach(el => {
+          const t = (el.textContent || '').trim();
+          if (t.includes('결재하기') || t === '상태변경' || el.dataset.liveDetailExtra || el.dataset.liveDetailStatus) el.remove();
+        });
+
+        const role = roleOf(me());
+        const same = strictSameTeam(item);
+        const stage = stageFor(item);
+        const allowManage = ['반장','조장','팀장','HSE'].includes(role) && same;
+
+        if (allowManage) {
+          // 관리 페이지와 같은 상태 드롭다운
+          const select = document.createElement('select');
+          select.dataset.liveDetailStatus = '1';
+          select.className = 'px-3 py-2 text-xs font-bold text-slate-700 border border-slate-200 rounded-lg bg-white';
+          ['검토대기','조치중','완료','반려'].forEach(st => {
+            const opt = document.createElement('option');
+            opt.value = st; opt.textContent = st;
+            if ((item.status || '검토대기') === st) opt.selected = true;
+            select.appendChild(opt);
+          });
+          const statusBtn = document.createElement('button');
+          statusBtn.type = 'button';
+          statusBtn.dataset.liveDetailExtra = 'status';
+          statusBtn.className = 'px-3 py-2 text-xs font-bold text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-50';
+          statusBtn.innerHTML = '<i class="fas fa-sliders mr-1"></i>상태변경';
+          statusBtn.onclick = function(){
+            const next = select.value;
+            if (next === (app.ai1.getData().find(x=>String(x.id)===String(item.id))?.status || '검토대기')) {
+              return alert('변경할 상태를 선택해 주세요.');
+            }
+            if (typeof window.__openSafetyStatusModal === 'function') window.__openSafetyStatusModal(item.id, next);
+          };
+          box.appendChild(select);
+          box.appendChild(statusBtn);
+        }
+
+        if (stage && same) {
+          const approveBtn = document.createElement('button');
+          approveBtn.type = 'button';
+          approveBtn.dataset.liveDetailExtra = 'approve';
+          approveBtn.className = 'px-3 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50';
+          approveBtn.innerHTML = '<i class="fas fa-check mr-1"></i>' + stageLabel(stage) + ' 결재하기';
+          approveBtn.onclick = function(){ window.safetyRole.approve(item.id); };
+          box.appendChild(approveBtn);
+        }
+      }, 0);
+      return result;
+    };
+  }
 })();
 </script>
 
