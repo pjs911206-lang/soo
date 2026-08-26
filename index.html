@@ -13294,9 +13294,10 @@ const app = {
           <button id="firebase-v1-close" type="button" style="border:0;background:transparent;color:#64748b;font-size:18px;cursor:pointer">×</button>
         </div>
         <div id="firebase-v1-migration-info" style="font-size:11px;color:#475569;line-height:1.6;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px;margin-bottom:9px">Firebase 패널이 로드되었습니다.</div>
-        <div style="font-size:10px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px;margin-bottom:9px;line-height:1.5">이 패널은 Firebase 연결을 확인하기 위한 초기 설정용입니다. 회원 이전은 <b>admin</b>으로 로그인한 경우에만 실행됩니다.</div>
+        <div style="font-size:10px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px;margin-bottom:9px;line-height:1.5">기존 회원 이전은 <b>admin</b>으로 로그인한 경우에만 실행됩니다. 6자리 미만 비밀번호는 임시 비밀번호를 자동 발급합니다.</div>
         <div style="display:flex;gap:7px;flex-wrap:wrap">
           <button id="firebase-v1-check" type="button" style="border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">연결 확인</button>
+          <button id="firebase-v1-report" type="button" style="border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">임시비밀번호 다시 다운로드</button>
           <button id="firebase-v1-migrate" type="button" style="border:0;background:#2563eb;color:#fff;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">기존 회원 Firebase 이전 (admin 전용)</button>
         </div>
         <pre id="firebase-v1-log" style="white-space:pre-wrap;max-height:180px;overflow:auto;font-size:10px;color:#475569;background:#f8fafc;border-radius:9px;padding:8px;margin:9px 0 0"></pre>
@@ -13308,9 +13309,18 @@ const app = {
       const close = panel.querySelector("#firebase-v1-close");
       const check = panel.querySelector("#firebase-v1-check");
       const migrate = panel.querySelector("#firebase-v1-migrate");
+      const report = panel.querySelector("#firebase-v1-report");
       if (close) close.onclick = () => { panel.style.display = "none"; };
       if (check) check.onclick = () => checkFirebase(true);
       if (migrate) migrate.onclick = () => migrateUsers();
+      if (report) report.onclick = () => {
+        try {
+          const saved = JSON.parse(sessionStorage.getItem("gnp_firebase_migration_last_report") || "null");
+          const tempItems = Array.isArray(saved?.items) ? saved.items.filter(x => x.temporaryPassword) : [];
+          downloadMigrationCredentials(tempItems);
+          if (!tempItems.length) alert("저장된 임시 비밀번호 보고서가 없습니다.");
+        } catch (_) { alert("임시 비밀번호 보고서를 불러오지 못했습니다."); }
+      };
     }
     panel.style.display = "block";
     return panel;
@@ -13341,7 +13351,7 @@ const app = {
     if (info) {
       const user = app?.auth?.currentUser;
       const who = user ? `${user.id || ''}${user.role ? ` · ${user.role}` : ''}` : '로그인 전';
-      info.innerHTML = `현재 로그인: <b>${who}</b><br>현재 브라우저 회원: <b>${rows.length}</b>명<br>Firebase 이전 완료 표시: <b>${migrated}</b>명<br>Firebase 계정이 이미 존재하는 회원은 같은 비밀번호로 재연결할 수 있습니다.`;
+      info.innerHTML = `현재 로그인: <b>${who}</b><br>현재 브라우저 회원: <b>${rows.length}</b>명<br>Firebase 이전 완료 표시: <b>${migrated}</b>명<br>기존 비밀번호가 6자리 이상이면 그대로 사용하고, 6자리 미만은 임시 비밀번호를 자동 생성합니다.`;
     }
   }
 
@@ -13378,42 +13388,64 @@ const app = {
     return migrationAuth;
   }
 
+  function makeTempPassword(length = 12) {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+    const bytes = new Uint32Array(length);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, n => alphabet[n % alphabet.length]).join("");
+  }
+
+  function passwordForMigration(legacyUser) {
+    const oldPassword = String(legacyUser?.pw || "");
+    if (oldPassword.length >= 6) {
+      return { password: oldPassword, temporary: false };
+    }
+    return { password: makeTempPassword(), temporary: true };
+  }
+
   async function createOrFindFirebaseUser(legacyUser) {
     const legacyId = String(legacyUser?.id || "").trim();
-    const password = String(legacyUser?.pw || "");
     if (!legacyId) throw new Error("ID가 비어 있습니다.");
-    if (password.length < 6) {
-      const err = new Error("비밀번호가 6자리 미만이라 Firebase Authentication으로 이전할 수 없습니다. 비밀번호 변경 후 다시 시도하세요.");
-      err.code = "password-too-short";
-      throw err;
-    }
     const email = await internalEmail(legacyId);
     const auth = await ensureMigrationAuth();
+    const passwordInfo = passwordForMigration(legacyUser);
     try {
-      const credential = await createUserWithEmailAndPassword(auth, email, password);
-      return { uid: credential.user.uid, email, created: true };
+      const credential = await createUserWithEmailAndPassword(auth, email, passwordInfo.password);
+      return {
+        uid: credential.user.uid,
+        email,
+        created: true,
+        password: passwordInfo.password,
+        temporaryPassword: passwordInfo.temporary
+      };
     } catch (error) {
       if (error?.code === "auth/email-already-in-use") {
-        try {
-          const credential = await signInWithEmailAndPassword(auth, email, password);
-          return { uid: credential.user.uid, email, created: false };
-        } catch (loginError) {
-          const err = new Error(`이미 Firebase 계정이 있지만 현재 비밀번호로 로그인할 수 없습니다. Firebase Console에서 비밀번호 재설정이 필요합니다. (${loginError.code || loginError.message})`);
-          err.code = "existing-account-login-failed";
-          throw err;
+        const oldPassword = String(legacyUser?.pw || "");
+        if (oldPassword.length >= 6) {
+          try {
+            const credential = await signInWithEmailAndPassword(auth, email, oldPassword);
+            return { uid: credential.user.uid, email, created: false, password: oldPassword, temporaryPassword: false };
+          } catch (loginError) {
+            const err = new Error(`이미 Firebase 계정이 있지만 현재 비밀번호로 연결할 수 없습니다. Firebase Console에서 해당 계정의 비밀번호를 재설정해 주세요. (${loginError.code || loginError.message})`);
+            err.code = "existing-account-login-failed";
+            throw err;
+          }
         }
+        const err = new Error("이미 같은 Firebase 계정이 존재하지만 기존 비밀번호가 6자리 미만이라 자동 연결할 수 없습니다. 해당 계정은 Firebase Console에서 비밀번호를 재설정해야 합니다.");
+        err.code = "existing-account-needs-reset";
+        throw err;
       }
       throw error;
     }
   }
 
   async function writeUserProfile(uid, legacyUser, email) {
-    const role = legacyUser.id === "admin" ? "HSE" : (legacyUser.role || "반원");
     const data = {
       legacyId: String(legacyUser.id || ""),
       name: String(legacyUser.name || legacyUser.id || ""),
       team: String(legacyUser.team || "미지정"),
-      role,
+      role: String(legacyUser.role || (legacyUser.id === "admin" ? "HSE" : "반원")),
+      isMaster: String(legacyUser.id || "") === "admin",
       modules: Array.isArray(legacyUser.modules) ? legacyUser.modules : [],
       active: legacyUser.active !== false,
       firebaseEmail: email,
@@ -13422,6 +13454,23 @@ const app = {
     };
     await setDoc(doc(fbDb, "users", uid), data, { merge: true });
     return data;
+  }
+
+  function downloadMigrationCredentials(items) {
+    if (!items.length) return;
+    const header = ["성명(ID)", "Firebase 이메일", "임시 비밀번호", "기존 비밀번호 사용 여부"];
+    const rows = items.map(x => [x.id, x.email, x.password || "", x.temporaryPassword ? "아니오(임시비밀번호)" : "예"]);
+    const escCsv = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = "\ufeff" + [header, ...rows].map(r => r.map(escCsv).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `GNP_HSE_Firebase_임시비밀번호_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   async function migrateUsers() {
@@ -13436,26 +13485,33 @@ const app = {
       alert("현재 브라우저에 이전할 회원 데이터가 없습니다.");
       return;
     }
-    if (!confirm(`현재 회원 ${rows.length}명을 Firebase Authentication + Firestore users로 이전합니다.\n\n비밀번호 6자리 미만 계정은 별도로 표시되고 기존 데이터는 삭제하지 않습니다.\n진행할까요?`)) return;
+    if (!confirm(`현재 회원 ${rows.length}명을 Firebase Authentication + Firestore users로 이전합니다.\n\n- 기존 비밀번호가 6자리 이상이면 기존 비밀번호를 유지합니다.\n- 6자리 미만이면 임시 비밀번호를 새로 생성합니다.\n- 임시 비밀번호는 완료 후 CSV로 다운로드할 수 있습니다.\n- 기존 localStorage 데이터는 삭제하지 않습니다.\n\n진행할까요?`)) return;
 
     const button = document.getElementById("firebase-v1-migrate");
     if (button) { button.disabled = true; button.textContent = "이전 중..."; }
     writeLog(`회원 ${rows.length}명 이전 시작`);
     const map = getMigrationMap();
+    const credentialReport = [];
     let ok = 0, pending = 0, failed = 0;
 
     for (const row of rows) {
       try {
         const result = await createOrFindFirebaseUser(row);
         await writeUserProfile(result.uid, row, result.email);
-        map[String(row.id)] = { uid: result.uid, email: result.email, migratedAt: new Date().toISOString() };
+        map[String(row.id)] = {
+          uid: result.uid,
+          email: result.email,
+          migratedAt: new Date().toISOString(),
+          temporaryPassword: !!result.temporaryPassword
+        };
         saveMigrationMap(map);
+        credentialReport.push({ id: String(row.id || ""), email: result.email, password: result.password, temporaryPassword: !!result.temporaryPassword });
         ok += 1;
-        writeLog(`✓ ${row.id} → ${result.email} (${result.created ? "신규" : "기존 계정 연결"})`);
+        writeLog(`✓ ${row.id} → ${result.email} (${result.created ? "신규" : "기존 계정 연결"}${result.temporaryPassword ? ", 임시비밀번호 발급" : ", 기존 비밀번호 유지"})`);
       } catch (error) {
-        if (error?.code === "password-too-short") {
+        if (error?.code === "existing-account-needs-reset" || error?.code === "existing-account-login-failed") {
           pending += 1;
-          writeLog(`△ ${row.id}: 비밀번호가 6자리 미만이라 인증계정은 보류`);
+          writeLog(`△ ${row.id}: 이미 Firebase 계정이 있어 자동 연결 보류 · ${error.message}`);
         } else {
           failed += 1;
           writeLog(`✕ ${row.id}: ${error.message || error}`);
@@ -13465,8 +13521,13 @@ const app = {
 
     refreshPanel();
     if (button) { button.disabled = false; button.textContent = "기존 회원 Firebase 이전"; }
-    const summary = `회원 이전 완료\n\n성공: ${ok}명\n비밀번호 조건으로 보류: ${pending}명\n오류: ${failed}명\n\n기존 localStorage 데이터는 삭제하지 않았습니다.`;
-    writeLog(`이전 종료 · 성공 ${ok}, 보류 ${pending}, 오류 ${failed}`);
+    if (credentialReport.length) {
+      downloadMigrationCredentials(credentialReport.filter(x => x.temporaryPassword));
+      sessionStorage.setItem("gnp_firebase_migration_last_report", JSON.stringify({ createdAt: new Date().toISOString(), items: credentialReport }));
+    }
+    const tempCount = credentialReport.filter(x => x.temporaryPassword).length;
+    const summary = `회원 이전 완료\n\n성공: ${ok}명\n임시 비밀번호 발급: ${tempCount}명\n보류: ${pending}명\n오류: ${failed}명\n\n임시 비밀번호가 있는 경우 CSV 파일이 자동으로 다운로드됩니다.\n기존 localStorage 데이터는 삭제되지 않았습니다.`;
+    writeLog(`이전 종료 · 성공 ${ok}, 임시비밀번호 ${tempCount}, 보류 ${pending}, 오류 ${failed}`);
     alert(summary);
   }
 
@@ -13649,9 +13710,10 @@ const app = {
     <button id="firebase-v1-close" type="button" style="border:0;background:transparent;color:#64748b;font-size:18px;cursor:pointer">×</button>
   </div>
   <div id="firebase-v1-migration-info" style="font-size:11px;color:#475569;line-height:1.6;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px;margin-bottom:9px">Firebase 패널 로딩 중...</div>
-  <div style="font-size:10px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px;margin-bottom:9px;line-height:1.5">연결 확인용 초기 패널입니다. 기존 회원 이전은 <b>admin</b>으로 로그인한 경우에만 실행됩니다.</div>
+  <div style="font-size:10px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:8px;margin-bottom:9px;line-height:1.5">기존 회원 이전은 <b>admin</b>으로 로그인한 경우에만 실행됩니다. 6자리 미만 비밀번호는 임시 비밀번호를 자동 발급합니다.</div>
   <div style="display:flex;gap:7px;flex-wrap:wrap">
     <button id="firebase-v1-check" type="button" style="border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">연결 확인</button>
+          <button id="firebase-v1-report" type="button" style="border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">임시비밀번호 다시 다운로드</button>
     <button id="firebase-v1-migrate" type="button" style="border:0;background:#2563eb;color:#fff;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer">기존 회원 Firebase 이전 (admin 전용)</button>
   </div>
   <pre id="firebase-v1-log" style="white-space:pre-wrap;max-height:180px;overflow:auto;font-size:10px;color:#475569;background:#f8fafc;border-radius:9px;padding:8px;margin:9px 0 0"></pre>
