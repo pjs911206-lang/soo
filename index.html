@@ -10668,9 +10668,28 @@ const app = {
     if(team){u.team=team;u.teamManuallyAssigned=true;} if(id!=='admin'&&roleValues.includes(role))u.role=role;
     saveUsers(list); if(user().id===id)app.auth.currentUser=u; renderPermissionV3(); alert('회원 권한을 저장했습니다.');
   };
-  window.safetyRole.deleteUser=(id)=>{
-    if(!isRoot()||id==='admin')return; if(!confirm('이 계정을 삭제하시겠습니까?'))return;
-    saveUsers(getUsers().filter(u=>u.id!==id));renderPermissionV3();
+  window.safetyRole.deleteUser=async(id)=>{
+    if(!isRoot()||id==='admin')return;
+    const targetId=String(id||'').trim();
+    if(!targetId)return;
+    const target=getUsers().find(u=>String(u?.id||'')===targetId);
+    if(!target)return alert('삭제할 회원을 찾을 수 없습니다.');
+    if(!confirm(`'${target.name||targetId}' (${targetId}) 계정을 완전히 삭제하시겠습니까?\n\nFirebase Authentication과 Firestore 회원 프로필에서도 함께 삭제됩니다.\n삭제 후에는 해당 계정으로 다시 로그인할 수 없습니다.`))return;
+
+    try{
+      const firebase=window.gnpFirebase;
+      if(!firebase?.deleteMemberAccount) throw new Error('Firebase 관리자 삭제 기능이 연결되지 않았습니다. Firebase Functions 배포가 필요합니다.');
+      const result=await firebase.deleteMemberAccount(targetId);
+      if(result?.ok===false) throw new Error(result.message||'Firebase 계정 삭제에 실패했습니다.');
+
+      // 서버에서 Firebase Auth + Firestore 삭제가 성공한 뒤에만 로컬 회원 목록도 제거합니다.
+      saveUsers(getUsers().filter(u=>String(u?.id||'')!==targetId));
+      renderPermissionV3();
+      alert(`회원 삭제 완료\n\n${target.name||targetId} (${targetId})\nFirebase Authentication: 삭제 완료\nFirestore users: 삭제 완료\n로컬 회원 목록: 삭제 완료`);
+    }catch(error){
+      console.error('member delete failed',error);
+      alert(`회원 삭제에 실패했습니다.\n\n${error?.message||error}\n\n※ Firebase Authentication 계정은 서버 권한(Admin SDK)으로 삭제해야 하므로, Firebase Functions가 배포되어 있어야 합니다.`);
+    }
   };
   window.safetyRole.toggleApprovalMode=()=>{ if(!isRoot())return; localStorage.setItem('gnp_ai1_approval_mode',String(!approvalEnabled()));renderPermissionV3();app.ai1.render();};
 
@@ -13214,6 +13233,7 @@ const app = {
     setDoc,
     serverTimestamp
   } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+  import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-functions.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyD7NDBaym7lGl_uP3yaR0hn64mVOI3BVzw",
@@ -13610,6 +13630,18 @@ const app = {
     return { ...(localUser || {}), ...profile, id: profile.legacyId || id, name: profile.name || id, role: profile.role || localUser?.role || "반원", team: profile.team || localUser?.team || "미지정" };
   }
 
+  async function deleteFirebaseMemberAccount(legacyId) {
+    if (!fbApp || !fbAuth || !fbDb) throw new Error("Firebase가 아직 초기화되지 않았습니다.");
+    if (!fbAuth.currentUser) throw new Error("관리자 Firebase 로그인 세션이 없습니다. 다시 로그인해 주세요.");
+
+    // Auth 계정 삭제는 Admin SDK가 필요한 작업이므로 브라우저에서 직접 처리하지 않습니다.
+    // Callable Function이 관리자 토큰을 검증한 뒤 Auth + Firestore를 원자적으로 정리합니다.
+    const functions = getFunctions(fbApp, "asia-northeast3");
+    const callable = httpsCallable(functions, "deleteMemberAccount");
+    const result = await callable({ legacyId: String(legacyId || "").trim() });
+    return result?.data || { ok: true };
+  }
+
   async function patchAuth() {
     const legacyApp = getLegacyApp();
     if (!legacyApp?.auth || legacyApp.auth.__firebaseV1Patched) return false;
@@ -13718,7 +13750,8 @@ const app = {
         version: FIREBASE_SCHEMA_VERSION,
         migrateUsers,
         check: checkFirebase,
-        internalEmail
+        internalEmail,
+        deleteMemberAccount: deleteFirebaseMemberAccount
       };
       ensurePanel();
       const status = document.getElementById("firebase-v1-status");
