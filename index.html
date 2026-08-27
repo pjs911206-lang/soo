@@ -262,6 +262,73 @@
 }
 </style>
 
+
+<style id="mobile-management-ui-optimization">
+@media (max-width: 768px) {
+  /* 안전제안 관리의 액션/버튼 영역 */
+  #view-manage button,
+  #view-manage .btn,
+  #view-manage [role="button"] {
+    min-height: 38px !important;
+    height: 38px !important;
+    min-width: 0 !important;
+    width: auto !important;
+    padding: 0 11px !important;
+    line-height: 1.1 !important;
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    overflow-wrap: normal !important;
+    flex: 0 0 auto !important;
+    vertical-align: middle;
+  }
+
+  /* 버튼 내부 텍스트/아이콘이 불필요하게 세로로 늘어나지 않도록 */
+  #view-manage button *,
+  #view-manage .btn *,
+  #view-manage [role="button"] * {
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    line-height: 1.1 !important;
+  }
+
+  /* 관리 페이지의 액션 묶음은 한 줄 우선, 공간이 부족할 때만 자연스럽게 다음 줄 */
+  #view-manage .flex,
+  #view-manage .inline-flex {
+    align-items: center !important;
+  }
+
+  /* 버튼이 들어가는 셀은 위아래로 늘어나지 않도록 */
+  #view-manage td {
+    vertical-align: middle !important;
+  }
+
+  /* 테이블 내부 액션 버튼들이 너무 좁아지는 것을 방지 */
+  #view-manage td .flex {
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+  }
+
+  /* 관리 상단 필터/검색 버튼 */
+  #view-manage input,
+  #view-manage select {
+    min-height: 40px !important;
+    height: 40px !important;
+  }
+
+  /* 작은 화면에서 긴 버튼명은 폰트만 살짝 줄여 한 줄 유지 */
+  #view-manage button.text-xs,
+  #view-manage .text-xs {
+    font-size: 12px !important;
+  }
+
+  /* 모바일 관리 테이블은 기존 가로보기 구조를 유지 */
+  #view-manage .overflow-x-auto {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+</style>
+
 </head>
 <body class="h-screen flex overflow-hidden">
 <div id="auth-layer" class="fixed inset-0 z-[100] gnp-blue flex items-center justify-center">
