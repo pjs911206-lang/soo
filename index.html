@@ -14159,5 +14159,153 @@ const app = {
 })();
 </script>
 
+
+
+<!-- FINAL UX PATCH: 최신 안전제안 우선 + 전체보기 액션 정렬 -->
+<style id="final-safety-proposal-ux-patch">
+  #ai1-preview-action-buttons {
+    display:flex !important;
+    align-items:center !important;
+    justify-content:flex-end !important;
+    gap:6px !important;
+    flex-wrap:wrap !important;
+    margin-left:auto !important;
+  }
+  #ai1-preview-action-buttons button,
+  #ai1-preview-action-buttons select {
+    box-sizing:border-box !important;
+    min-height:38px !important;
+    height:38px !important;
+    white-space:nowrap !important;
+    word-break:keep-all !important;
+    line-height:1 !important;
+    display:inline-flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+  }
+  @media (max-width: 768px) {
+    #ai1-preview-action-buttons {
+      width:100% !important;
+      margin:8px 0 0 !important;
+      display:grid !important;
+      grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+      gap:6px !important;
+      order:3 !important;
+      flex-basis:100% !important;
+    }
+    #ai1-preview-action-buttons button,
+    #ai1-preview-action-buttons select {
+      width:100% !important;
+      min-width:0 !important;
+      padding:0 8px !important;
+      font-size:12px !important;
+    }
+    #ai1-measure-modal > div > div:first-child {
+      flex-wrap:wrap !important;
+      align-items:flex-start !important;
+    }
+    #ai1-measure-modal > div > div:first-child > div:first-child {
+      flex:1 1 auto !important;
+      min-width:0 !important;
+    }
+  }
+</style>
+<script id="final-safety-proposal-ux-patch-script">
+(function(){
+  'use strict';
+  if (typeof app === 'undefined' || !app.ai1) return;
+
+  // 1) 안전제안 목록은 항상 최신 등록건부터 표시합니다.
+  const parseTime = (item) => {
+    if (!item) return 0;
+    const created = item.createdAt || item.created_at || item.timestamp;
+    if (created) {
+      const t = Date.parse(created);
+      if (!Number.isNaN(t)) return t;
+      const n = Number(created);
+      if (Number.isFinite(n)) return n;
+    }
+    const idMatch = String(item.id || '').match(/(\d{10,})$/);
+    if (idMatch) {
+      const n = Number(idMatch[1]);
+      if (Number.isFinite(n)) return n;
+    }
+    const d = String(item.date || '').replace(/\./g,'-').trim();
+    const t2 = Date.parse(d);
+    return Number.isNaN(t2) ? 0 : t2;
+  };
+
+  if (!app.ai1.__latestFirstPatch) {
+    const originalFiltered = app.ai1.getFilteredData ? app.ai1.getFilteredData.bind(app.ai1) : null;
+    app.ai1.getFilteredData = function(){
+      const list = originalFiltered ? originalFiltered() : this.getData();
+      return Array.isArray(list)
+        ? list.slice().sort((a,b)=>parseTime(b)-parseTime(a))
+        : [];
+    };
+    app.ai1.__latestFirstPatch = true;
+  }
+
+  // 2) 전체보기 상단 액션 버튼을 한 곳에 모으고 항상 같은 순서로 정렬합니다.
+  function arrangePreviewActions(){
+    const modal = document.getElementById('ai1-measure-modal');
+    if (!modal || modal.classList.contains('hidden')) return;
+    const header = modal.querySelector(':scope > div > div:first-child');
+    const actionBox = document.getElementById('ai1-preview-action-buttons');
+    const print = document.getElementById('ai1-preview-print-btn');
+    if (!header || !actionBox || !print) return;
+
+    // 인쇄 버튼을 액션 그룹으로 이동하고, 닫기 버튼은 헤더의 마지막에 둡니다.
+    if (print.parentElement !== actionBox) actionBox.insertBefore(print, actionBox.firstChild);
+
+    // 상태 선택상자/버튼은 상태변경 그룹으로 묶을 수 있으면 시각적으로 인접시킵니다.
+    const statusSelect = actionBox.querySelector('select[data-live-detail-status]');
+    const statusBtn = actionBox.querySelector('button[data-live-detail-extra="status"]');
+    if (statusSelect && statusBtn) {
+      statusSelect.style.marginRight = '0px';
+      statusBtn.style.marginLeft = '0px';
+    }
+
+    // 버튼 종류별로 확실한 순서를 부여합니다: 인쇄 → 점수평가 → 상태변경 → 결재.
+    const children = Array.from(actionBox.children);
+    const scoreBtn = children.find(x => (x.textContent||'').includes('점수평가'));
+    const approveBtn = children.find(x => (x.textContent||'').includes('결재하기'));
+    const ordered = [print, scoreBtn, statusSelect, statusBtn, approveBtn].filter(Boolean);
+    ordered.forEach(el => actionBox.appendChild(el));
+
+    const close = header.querySelector('button[onclick*="closeMeasureModal"]');
+    if (close) {
+      close.style.flex = '0 0 38px';
+      close.style.width = '38px';
+      close.style.height = '38px';
+      close.style.marginLeft = '6px';
+      header.appendChild(close);
+    }
+  }
+
+  if (!app.ai1.__previewActionArrangePatch && typeof app.ai1.showMeasure === 'function') {
+    const originalShow = app.ai1.showMeasure.bind(app.ai1);
+    app.ai1.showMeasure = function(id){
+      const result = originalShow(id);
+      setTimeout(arrangePreviewActions, 0);
+      setTimeout(arrangePreviewActions, 80);
+      return result;
+    };
+    app.ai1.__previewActionArrangePatch = true;
+  }
+
+  document.addEventListener('click', function(e){
+    const btn = e.target && e.target.closest ? e.target.closest('button') : null;
+    if (btn && /전체보기/.test(btn.textContent||'')) {
+      setTimeout(arrangePreviewActions, 0);
+      setTimeout(arrangePreviewActions, 120);
+    }
+  }, true);
+
+  // 데이터/권한/상태 변경 후에도 목록을 최신순으로 즉시 재정렬합니다.
+  setTimeout(()=>{ try{ app.ai1.render(); }catch(_){} }, 0);
+})();
+</script>
+
 </body>
 </html>
