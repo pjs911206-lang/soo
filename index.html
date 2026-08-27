@@ -10803,7 +10803,7 @@ const app = {
 (function () {
   if (typeof app === 'undefined' || !app.auth || !app.db) return;
 
-  const VALID_ROLES = ['반원','반장','팀장','HSE'];
+  const VALID_ROLES = ['반원','반장','팀장','HSE','임원'];
   const legacyNormalize = app.auth.normalizeUsers;
 
   /* 기존 정규화 함수가 반장·팀장·HSE를 USER로 되돌리면서
@@ -11024,7 +11024,7 @@ const app = {
 (function () {
   if (typeof app === 'undefined' || !app.auth || !app.db || !app.ui) return;
 
-  const ROLES = ['반원', '반장', '팀장', 'HSE'];
+  const ROLES = ['반원', '반장', '팀장', 'HSE', '임원'];
 
   function normalizeAndGet(id) {
     const rows = app.auth.normalizeUsers(app.db.getUsers());
@@ -11109,7 +11109,7 @@ const app = {
 (function () {
   if (typeof app === 'undefined' || !app.ai1 || !app.auth || !app.db) return;
 
-  const ROLES = ['HSE', '과장', '대리', '반원', '반장', '부장', '사원', '조장', '차장', '팀장', '파트장'];
+  const ROLES = ['HSE', '과장', '대리', '반원', '반장', '부장', '사원', '조장', '차장', '팀장', '파트장', '임원'];
   const FOREMAN_ROLES = ['반장', '조장'];
   const REVIEW_ROLES = ['반장', '조장', '팀장', 'HSE'];
   const TEAM_CONTROL_ROLES = ['반장', '조장', '팀장', '파트장', 'HSE'];
@@ -12927,7 +12927,7 @@ const app = {
     if(HSE_IDS.has(id) || id==='admin' || ['MASTER','ADMIN'].includes(String(u?.role||''))) return 'HSE';
     if(id===PART_LEADER) return '파트장';
     if(id===FINAL_LEADER) return '팀장';
-    const allowed=new Set(['HSE','파트장','팀장','반장','조장','반원','사원','대리','과장','차장','부장']);
+    const allowed=new Set(['HSE','파트장','팀장','반장','조장','반원','사원','대리','과장','차장','부장','임원']);
     return allowed.has(String(u?.role||'')) ? String(u.role) : '반원';
   };
   const me=()=>app.auth.currentUser||{};
@@ -14563,9 +14563,9 @@ const app = {
   }
 
   /* 양쪽 부서명 칸을 넓혀 '인사환경팀'이 한 줄로 들어가도록 */
-  #ai1-pdf-sheet .sign col:first-child { width: 72px !important; }
-  #ai1-pdf-sheet .sign col:nth-child(5) { width: 90px !important; }
-  #ai1-pdf-sheet .sign .vertical { min-width: 72px !important; }
+  #ai1-pdf-sheet .sign col:first-child { width: 30px !important; }
+  #ai1-pdf-sheet .sign col:nth-child(5) { width: 30px !important; }
+  #ai1-pdf-sheet .sign .vertical { min-width: 30px !important; }
 
   /* 모바일에서도 이 테이블만큼은 고정 폭 A4 양식 내부에서 깨지지 않도록 */
   @media (max-width: 768px) {
@@ -14634,3 +14634,198 @@ const app = {
 })();
 </script>
 
+
+
+<!-- FINAL CORRECTION: executive role persistence + mobile preview action layout + narrow approval columns -->
+<style id="final-correction-v2">
+  /* PC/모바일 공통: 결재란은 원래 좁은 열 폭을 유지하되 텍스트는 줄바꿈하지 않습니다. */
+  #ai1-pdf-sheet .sign col:first-child,
+  #ai1-pdf-sheet .sign col:nth-child(5) { width:30px !important; }
+  #ai1-pdf-sheet .sign .vertical {
+    width:30px !important;
+    min-width:30px !important;
+    max-width:30px !important;
+    white-space:nowrap !important;
+    word-break:keep-all !important;
+    overflow-wrap:normal !important;
+    text-align:center !important;
+    vertical-align:middle !important;
+  }
+
+  /* 모바일 전체보기: 제목을 중앙에 고정하고 액션은 2열 카드형으로 정렬 */
+  @media (max-width:768px) {
+    #ai1-measure-modal > div > div:first-child {
+      position:relative !important;
+      display:grid !important;
+      grid-template-columns:1fr !important;
+      grid-template-rows:auto auto !important;
+      align-items:center !important;
+      justify-items:stretch !important;
+      min-height:0 !important;
+      padding:12px 48px 12px 12px !important;
+      gap:8px !important;
+    }
+    #ai1-measure-modal > div > div:first-child > div:first-child {
+      width:100% !important;
+      min-width:0 !important;
+      text-align:center !important;
+      margin:0 !important;
+    }
+    #ai1-measure-modal-title,
+    #ai1-measure-modal > div > div:first-child h5 {
+      width:100% !important;
+      text-align:center !important;
+      white-space:nowrap !important;
+      overflow:hidden !important;
+      text-overflow:ellipsis !important;
+      font-size:14px !important;
+    }
+    #ai1-measure-modal > div > div:first-child p {
+      text-align:center !important;
+      white-space:nowrap !important;
+      overflow:hidden !important;
+      text-overflow:ellipsis !important;
+      font-size:10px !important;
+    }
+    #ai1-measure-modal > div > div:first-child > div:last-child {
+      position:static !important;
+      transform:none !important;
+      width:100% !important;
+      min-width:0 !important;
+      margin:0 !important;
+      display:block !important;
+    }
+    #ai1-preview-action-buttons {
+      width:100% !important;
+      margin:0 !important;
+      display:grid !important;
+      grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+      gap:7px !important;
+      align-items:stretch !important;
+      justify-content:stretch !important;
+    }
+    #ai1-preview-action-buttons button,
+    #ai1-preview-action-buttons select,
+    #ai1-preview-print-btn {
+      width:100% !important;
+      min-width:0 !important;
+      height:38px !important;
+      min-height:38px !important;
+      margin:0 !important;
+      padding:0 7px !important;
+      font-size:11px !important;
+      line-height:1 !important;
+      white-space:nowrap !important;
+      word-break:keep-all !important;
+      overflow:hidden !important;
+      text-overflow:ellipsis !important;
+      box-sizing:border-box !important;
+      display:inline-flex !important;
+      align-items:center !important;
+      justify-content:center !important;
+    }
+    #ai1-measure-modal > div > div:first-child > div:last-child > button[onclick*="closeMeasureModal"] {
+      position:absolute !important;
+      top:10px !important;
+      right:10px !important;
+      width:34px !important;
+      height:34px !important;
+      min-width:34px !important;
+      min-height:34px !important;
+      margin:0 !important;
+      padding:0 !important;
+      z-index:3 !important;
+      display:inline-flex !important;
+      align-items:center !important;
+      justify-content:center !important;
+    }
+    /* 좁은 폰에서도 제목 영역 때문에 액션이 밀리지 않도록 */
+    @media (max-width:380px) {
+      #ai1-measure-modal > div > div:first-child { padding-right:44px !important; }
+      #ai1-preview-action-buttons { gap:5px !important; }
+      #ai1-preview-action-buttons button,
+      #ai1-preview-action-buttons select,
+      #ai1-preview-print-btn { font-size:10px !important; padding:0 5px !important; }
+    }
+  }
+</style>
+<script id="final-executive-role-persistence">
+(function(){
+  'use strict';
+  if (typeof app === 'undefined' || !app.auth || !app.db) return;
+
+  /* 임원을 공식 역할로 취급해 정규화 과정에서 반원으로 되돌아가지 않게 합니다. */
+  const EXEC='임원';
+  const originalNormalize = app.auth.normalizeUsers ? app.auth.normalizeUsers.bind(app.auth) : null;
+  if (originalNormalize && !app.auth.__executivePersistenceFinalV2) {
+    app.auth.__executivePersistenceFinalV2=true;
+    app.auth.normalizeUsers=function(items){
+      const before=Array.isArray(items)?items:[];
+      const executiveIds=new Set(before.filter(u=>u && String(u.role||'')===EXEC).map(u=>String(u.id||'')));
+      const rows=originalNormalize(before) || before;
+      let changed=false;
+      rows.forEach(u=>{
+        if(!u) return;
+        if(executiveIds.has(String(u.id||'')) && u.role!==EXEC){
+          u.role=EXEC; changed=true;
+        }
+      });
+      if(changed) { try{ app.db.saveUsers(rows); }catch(_){} }
+      return rows;
+    };
+  }
+
+  /* 권한 저장 로직의 마지막 방어선: 임원 선택값을 직접 저장합니다. */
+  window.safetyRole = window.safetyRole || {};
+  window.safetyRole.saveUser = function(id){
+    const current=app.auth.currentUser||{};
+    if(current.id!=='admin') return alert('권한 설정은 전체 관리자(admin)만 변경할 수 있습니다.');
+    const rows=app.auth.normalizeUsers(app.db.getUsers());
+    const target=rows.find(u=>u && String(u.id)===String(id));
+    if(!target) return alert('사용자 정보를 찾을 수 없습니다.');
+    const teamField=document.getElementById('spr-team-'+id);
+    const roleField=document.getElementById('spr-role-'+id);
+    const team=teamField?.value || target.team || '미지정';
+    const role=roleField?.value || target.role || '반원';
+    target.team=team;
+    target.teamManuallyAssigned=true;
+    if(String(id)!=='admin') target.role=role || '반원';
+    else target.role='HSE';
+    app.db.saveUsers(rows);
+    if(String(current.id)===String(id)) app.auth.currentUser=target;
+    try{
+      const fresh=app.db.getUsers().find(u=>String(u?.id)===String(id));
+      if(fresh && String(role)==='임원') fresh.role='임원';
+      if(fresh && String(role)==='임원') app.db.saveUsers(app.db.getUsers().map(u=>String(u?.id)===String(id)?fresh:u));
+    }catch(_){}
+    try{ app.auth.currentUser = app.db.getUsers().find(u=>String(u?.id)===String(current.id)) || app.auth.currentUser; }catch(_){}
+    document.getElementById('user-role')?.replaceChildren(document.createTextNode(String(app.auth.currentUser?.role || target.role || '반원')));
+    document.getElementById('user-info')?.replaceChildren(document.createTextNode(`${app.auth.currentUser?.name || target.name || target.id} (${app.auth.currentUser?.team || target.team || '미지정'})`));
+    /* 저장 직후 선택값을 유지 */
+    if(roleField && role) roleField.value=role;
+    alert(`${target.name || target.id} 계정의 소속 팀과 역할이 저장되었습니다.`);
+  };
+
+  function restoreExecutiveSelects(){
+    try{
+      const rows=app.db.getUsers();
+      document.querySelectorAll('select[id^="spr-role-"]').forEach(sel=>{
+        const id=sel.id.slice('spr-role-'.length);
+        const u=rows.find(x=>String(x?.id)===String(id));
+        if(!u) return;
+        if(String(u.role)==='임원'){
+          if(!Array.from(sel.options).some(o=>o.value===EXEC)){
+            const opt=document.createElement('option'); opt.value=EXEC; opt.textContent=EXEC; sel.appendChild(opt);
+          }
+          sel.value=EXEC;
+        }
+      });
+    }catch(_){ }
+  }
+  setTimeout(restoreExecutiveSelects,0);
+  setTimeout(restoreExecutiveSelects,150);
+  setTimeout(restoreExecutiveSelects,500);
+  setTimeout(restoreExecutiveSelects,1200);
+  window.addEventListener('load',restoreExecutiveSelects);
+})();
+</script>
