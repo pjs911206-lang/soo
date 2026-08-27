@@ -10512,7 +10512,7 @@ const app = {
   if(typeof app==='undefined' || !app.ai1 || !app.auth) return;
 
   const ROLE = { MEMBER:'반원', FOREMAN:'반장', LEADER:'팀장', HSE:'HSE' };
-  const roleValues = [ROLE.MEMBER, ROLE.FOREMAN, ROLE.LEADER, ROLE.HSE];
+  const roleValues = [ROLE.MEMBER, ROLE.FOREMAN, ROLE.LEADER, ROLE.HSE, '임원'];
   const scoreDefs = [
     {key:'risk', label:'안전 Risk 개선', max:3, desc:'위험요인 제거 및 안전성 향상 수준'},
     {key:'feasibility', label:'실현 가능성', max:3, desc:'현장 적용 가능성 및 실행 난이도'},
@@ -14309,3 +14309,328 @@ const app = {
 
 </body>
 </html>
+
+<!-- FINAL MOBILE PERMISSION + APPROVAL LAYOUT PATCH -->
+<style id="final-mobile-permission-approval-ui">
+  /* ----------------------------
+     1) 모바일 권한 설정: 가로 스크롤 대신 카드형으로 표시
+     ---------------------------- */
+  @media (max-width: 768px) {
+    #view-PERM-V3,
+    #view-PERM {
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+      overflow-x: hidden !important;
+    }
+
+    #view-PERM-V3 .overflow-x-auto,
+    #view-PERM .overflow-x-auto,
+    #view-PERM-V3 .perm-v2-table-wrap,
+    #view-PERM .perm-v2-table-wrap {
+      overflow-x: visible !important;
+      width: 100% !important;
+      max-width: 100% !important;
+    }
+
+    #view-PERM-V3 table,
+    #view-PERM table,
+    #view-PERM-V3 table.min-w-full,
+    #view-PERM table.min-w-full {
+      display: block !important;
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: 100% !important;
+      border: 0 !important;
+    }
+
+    #view-PERM-V3 thead,
+    #view-PERM thead {
+      display: none !important;
+    }
+
+    #view-PERM-V3 tbody,
+    #view-PERM tbody {
+      display: block !important;
+      width: 100% !important;
+    }
+
+    #view-PERM-V3 tbody tr,
+    #view-PERM tbody tr {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr !important;
+      gap: 10px 12px !important;
+      width: 100% !important;
+      box-sizing: border-box !important;
+      margin: 0 0 12px !important;
+      padding: 14px !important;
+      border: 1px solid #e2e8f0 !important;
+      border-radius: 14px !important;
+      background: #fff !important;
+      box-shadow: 0 2px 10px rgba(15,23,42,.05) !important;
+    }
+
+    #view-PERM-V3 tbody td,
+    #view-PERM tbody td {
+      display: block !important;
+      width: auto !important;
+      min-width: 0 !important;
+      max-width: 100% !important;
+      padding: 0 !important;
+      border: 0 !important;
+      text-align: left !important;
+      vertical-align: middle !important;
+      box-sizing: border-box !important;
+    }
+
+    /* 첫 번째 칸: 이름/ID */
+    #view-PERM-V3 tbody td:first-child,
+    #view-PERM tbody td:first-child {
+      grid-column: 1 / -1 !important;
+      padding-bottom: 2px !important;
+      border-bottom: 1px solid #f1f5f9 !important;
+    }
+
+    /* 팀 / 권한 */
+    #view-PERM-V3 tbody td:nth-child(2),
+    #view-PERM-V3 tbody td:nth-child(3),
+    #view-PERM tbody td:nth-child(2),
+    #view-PERM tbody td:nth-child(3) {
+      width: 100% !important;
+    }
+
+    /* 관리 버튼 */
+    #view-PERM-V3 tbody td:last-child,
+    #view-PERM tbody td:last-child {
+      grid-column: 1 / -1 !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: flex-end !important;
+      gap: 7px !important;
+      padding-top: 2px !important;
+    }
+
+    #view-PERM-V3 tbody select,
+    #view-PERM tbody select {
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: 100% !important;
+      min-height: 40px !important;
+      height: 40px !important;
+      padding: 0 10px !important;
+      font-size: 12px !important;
+      line-height: 1 !important;
+      white-space: nowrap !important;
+      word-break: keep-all !important;
+      box-sizing: border-box !important;
+    }
+
+    #view-PERM-V3 tbody td:last-child button,
+    #view-PERM tbody td:last-child button {
+      min-height: 40px !important;
+      height: 40px !important;
+      padding: 0 13px !important;
+      white-space: nowrap !important;
+      word-break: keep-all !important;
+      line-height: 1 !important;
+      flex: 0 0 auto !important;
+      box-sizing: border-box !important;
+    }
+
+    #view-PERM-V3 .team-manager-list,
+    #view-PERM .team-manager-list {
+      width: 100% !important;
+      max-width: 100% !important;
+    }
+
+    #view-PERM-V3 .team-manager-chip,
+    #view-PERM .team-manager-chip {
+      max-width: 100% !important;
+    }
+
+    /* 권한 화면의 긴 안내문이 화면 폭을 밀어내지 않도록 */
+    #view-PERM-V3 p,
+    #view-PERM p,
+    #view-PERM-V3 h3,
+    #view-PERM-V3 h4,
+    #view-PERM h3,
+    #view-PERM h4 {
+      overflow-wrap: break-word !important;
+      word-break: keep-all !important;
+    }
+
+    /* ----------------------------
+       2) 안전제안 전체보기 헤더: 제목 중앙 / 버튼 오른쪽 정렬
+       ---------------------------- */
+    #ai1-measure-modal > div > div:first-child {
+      position: relative !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      min-height: 58px !important;
+      padding: 10px 92px !important;
+      box-sizing: border-box !important;
+    }
+
+    #ai1-measure-modal > div > div:first-child > div:first-child {
+      width: 100% !important;
+      min-width: 0 !important;
+      margin: 0 !important;
+      text-align: center !important;
+    }
+
+    #ai1-measure-modal-title,
+    #ai1-measure-modal > div > div:first-child h5,
+    #ai1-measure-modal > div > div:first-child p {
+      text-align: center !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+    }
+
+    #ai1-measure-modal > div > div:first-child > div:last-child {
+      position: absolute !important;
+      top: 50% !important;
+      right: 10px !important;
+      transform: translateY(-50%) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: flex-end !important;
+      flex-wrap: nowrap !important;
+      gap: 6px !important;
+      margin: 0 !important;
+    }
+
+    #ai1-preview-action-buttons {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: flex-end !important;
+      flex-wrap: nowrap !important;
+      gap: 6px !important;
+      order: 0 !important;
+    }
+
+    #ai1-preview-action-buttons button,
+    #ai1-preview-print-btn,
+    #ai1-measure-modal > div > div:first-child > div:last-child > button {
+      min-width: 40px !important;
+      min-height: 36px !important;
+      height: 36px !important;
+      padding: 0 9px !important;
+      white-space: nowrap !important;
+      word-break: keep-all !important;
+      line-height: 1 !important;
+      flex: 0 0 auto !important;
+    }
+
+    /* 좁은 화면에서는 아이콘 중심으로 공간을 절약 */
+    @media (max-width: 430px) {
+      #ai1-measure-modal > div > div:first-child {
+        padding-left: 72px !important;
+        padding-right: 74px !important;
+      }
+      #ai1-preview-action-buttons button,
+      #ai1-preview-print-btn {
+        padding: 0 7px !important;
+        font-size: 10px !important;
+      }
+    }
+  }
+
+  /* ----------------------------
+     3) 안전제안서 결재란: PC/모바일 모두 중앙정렬 + 줄바꿈 방지
+     ---------------------------- */
+  #ai1-pdf-sheet .sign,
+  #ai1-pdf-sheet .sign .role-row,
+  #ai1-pdf-sheet .sign .signature-row {
+    table-layout: fixed !important;
+  }
+
+  #ai1-pdf-sheet .sign td,
+  #ai1-pdf-sheet .sign th,
+  #ai1-pdf-sheet .sign .vertical,
+  #ai1-pdf-sheet .sign .card-title {
+    text-align: center !important;
+    vertical-align: middle !important;
+  }
+
+  #ai1-pdf-sheet .sign .vertical,
+  #ai1-pdf-sheet .sign .card-title,
+  #ai1-pdf-sheet .sign .role-row td {
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    overflow-wrap: normal !important;
+  }
+
+  /* 양쪽 부서명 칸을 넓혀 '인사환경팀'이 한 줄로 들어가도록 */
+  #ai1-pdf-sheet .sign col:first-child { width: 72px !important; }
+  #ai1-pdf-sheet .sign col:nth-child(5) { width: 90px !important; }
+  #ai1-pdf-sheet .sign .vertical { min-width: 72px !important; }
+
+  /* 모바일에서도 이 테이블만큼은 고정 폭 A4 양식 내부에서 깨지지 않도록 */
+  @media (max-width: 768px) {
+    #ai1-pdf-sheet .sign {
+      width: 100% !important;
+      min-width: 100% !important;
+    }
+    #ai1-pdf-sheet .sign .vertical {
+      font-size: 11px !important;
+    }
+  }
+</style>
+
+<script id="final-role-preservation-patch">
+(function(){
+  'use strict';
+  if (typeof app === 'undefined' || !app.auth || !app.db) return;
+
+  /* 권한 설정 V3 드롭다운에서 임원을 선택할 수 있도록 역할 목록을 확장합니다. */
+  try {
+    if (typeof roleValues !== 'undefined' && Array.isArray(roleValues) && !roleValues.includes('임원')) {
+      roleValues.push('임원');
+    }
+  } catch (_) {}
+
+  /* 기존의 후속 정규화 패치가 임원을 반원으로 되돌리지 않도록 마지막 정규화기에서 보존합니다. */
+  const previousNormalize = app.auth.normalizeUsers?.bind(app.auth);
+  if (previousNormalize && !app.auth.__executiveRoleFinalized) {
+    app.auth.__executiveRoleFinalized = true;
+    app.auth.normalizeUsers = function(items){
+      const before = Array.isArray(items) ? items : [];
+      const executiveIds = new Set(before.filter(u => String(u?.role || '') === '임원').map(u => String(u?.id || '')));
+      const rows = previousNormalize(before) || before;
+      let changed = false;
+      rows.forEach(u => {
+        if (!u) return;
+        if (executiveIds.has(String(u.id || '')) && u.role !== '임원') {
+          u.role = '임원';
+          changed = true;
+        }
+      });
+      if (changed) {
+        try { app.db.saveUsers(rows); } catch (_) {}
+      }
+      return rows;
+    };
+  }
+
+  /* 저장 직전/직후 역할 선택지에 임원을 보충하고 현재 값도 그대로 유지합니다. */
+  function ensureExecutiveOptions(){
+    try {
+      document.querySelectorAll('select[id^="spr-role-"]').forEach(select => {
+        if (!Array.from(select.options).some(o => o.value === '임원')) {
+          const option = document.createElement('option');
+          option.value = '임원'; option.textContent = '임원';
+          select.appendChild(option);
+        }
+      });
+    } catch (_) {}
+  }
+
+  document.addEventListener('DOMContentLoaded', ensureExecutiveOptions, {once:true});
+  setTimeout(ensureExecutiveOptions, 300);
+  setTimeout(ensureExecutiveOptions, 1200);
+  new MutationObserver(() => ensureExecutiveOptions()).observe(document.body, {childList:true, subtree:true});
+})();
+</script>
+
