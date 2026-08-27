@@ -1092,7 +1092,12 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-slate-600 mb-1">현장 사진 <span class="text-slate-400 font-normal">(선택, 최대 1장)</span></label>
-                                <input id="ai1-files" type="file" accept="image/*" capture="environment" onchange="app.ai1.previewFiles(this.files)" class="w-full border rounded-lg px-3 py-2 text-sm bg-slate-50">
+                                <input id="ai1-files" type="file" accept="image/*" onchange="app.ai1.previewFiles(this.files)" class="w-full border rounded-lg px-3 py-2 text-sm bg-slate-50">
+                                <div id="ai1-mobile-photo-actions" class="hidden mt-2 grid grid-cols-2 gap-2">
+                                    <button type="button" id="ai1-mobile-camera-btn" class="min-h-[44px] rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-sm font-bold" onclick="document.getElementById('ai1-mobile-camera-input').click()"><i class="fas fa-camera mr-1"></i>사진 찍기</button>
+                                    <button type="button" id="ai1-mobile-album-btn" class="min-h-[44px] rounded-lg border border-slate-200 bg-white text-slate-700 text-sm font-bold" onclick="document.getElementById('ai1-files').click()"><i class="fas fa-images mr-1"></i>사진첩에서 선택</button>
+                                    <input id="ai1-mobile-camera-input" type="file" accept="image/*" capture="environment" class="hidden" onchange="app.ai1.previewFiles(this.files)">
+                                </div>
                                 <div id="ai1-preview" class="grid grid-cols-2 gap-2 mt-3"></div>
                             </div>
                             <div>
@@ -1182,7 +1187,7 @@
                             </div>
                             <div class="border border-emerald-100 bg-emerald-50/40 rounded-xl p-4">
                                 <label class="block text-xs font-black text-emerald-800 mb-2"><i class="fas fa-camera mr-1"></i>개선 사진 <span class="font-normal text-emerald-600">(After, 선택 · 최대 1장)</span></label>
-                                <input id="ai1-improvement-files" type="file" accept="image/*" capture="environment" onchange="app.ai1.previewImprovementFiles(this.files)" class="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                                <input id="ai1-improvement-files" type="file" accept="image/*" onchange="app.ai1.previewImprovementFiles(this.files)" class="w-full border rounded-lg px-3 py-2 text-sm bg-white">
                                 <div id="ai1-improvement-preview" class="grid grid-cols-2 gap-2 mt-3"></div>
                                 <button type="button" id="ai1-improvement-photo-edit-btn" onclick="app.ai1.openImprovementPhotoEditor()" class="mt-2 px-3 py-2 border border-emerald-200 bg-white text-emerald-700 rounded-lg text-xs font-bold hover:bg-emerald-100"><i class="fas fa-pen-ruler mr-1"></i>개선사진편집</button>
                             </div>
@@ -14007,231 +14012,325 @@ const app = {
 })();
 </script>
 
+
+<style id="mobile-safety-proposal-final-patch">
+/* =========================================================
+   Mobile final UX patch
+   1) 전체보기: A4 가로형 고정 캔버스를 유지하고 가로 스크롤
+   2) 사진첨부: 기본 버튼은 사진첩, 별도 '사진 찍기' 제공
+   ========================================================= */
+@media (max-width: 768px) {
+  /* 전체보기 모달은 모바일에서도 인쇄용 가로 A4 비율을 유지합니다. */
+  #ai1-measure-modal {
+    padding: 0 !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    overflow: hidden !important;
+  }
+  #ai1-measure-modal > div {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+  }
+  #ai1-measure-modal .px-5.py-4 {
+    min-height: 54px !important;
+    padding: 10px 12px !important;
+  }
+  #ai1-measure-modal .px-5.py-4 > div:first-child {
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+  #ai1-measure-modal .px-5.py-4 h5,
+  #ai1-measure-modal .px-5.py-4 p {
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  #ai1-measure-modal-content {
+    padding: 10px !important;
+    overflow-x: auto !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior: contain !important;
+    background: #e2e8f0 !important;
+  }
+  /* 기존 모바일 전역 max-width 규칙이 A4 시트를 줄이지 않도록 우선 적용 */
+  #ai1-measure-modal-content #ai1-pdf-sheet {
+    width: 1123px !important;
+    min-width: 1123px !important;
+    max-width: none !important;
+    height: 794px !important;
+    min-height: 794px !important;
+    max-height: none !important;
+    flex: 0 0 1123px !important;
+    margin: 0 auto !important;
+    transform: none !important;
+    overflow: hidden !important;
+  }
+  #ai1-measure-modal-content #ai1-pdf-sheet * {
+    max-width: none !important;
+  }
+  /* 모바일 전체보기 상단에 가로형 양식임을 안내 */
+  #ai1-measure-modal-content::before {
+    content: '가로형 안전제안서 · 좌우로 밀어서 전체 양식 보기';
+    display: block;
+    width: max-content;
+    margin: 0 auto 8px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: rgba(15,23,42,.75);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  /* 메인 AI 사진첨부는 사진첩 선택이 기본. 사진 찍기는 별도 버튼으로 제공 */
+  #ai1-mobile-photo-actions {
+    display: grid !important;
+  }
+  #ai1-files {
+    min-height: 44px !important;
+    background: #fff !important;
+  }
+}
+
+@media (min-width: 769px) {
+  #ai1-mobile-photo-actions { display:none !important; }
+}
+</style>
+<script id="mobile-safety-proposal-final-script">
+(function(){
+  function setup(){
+    const input = document.getElementById('ai1-files');
+    const actions = document.getElementById('ai1-mobile-photo-actions');
+    if(input && actions) actions.classList.remove('hidden');
+
+    /* 모바일에서만 사진 입력의 기본 capture 속성을 제거해 '사진첩'을 기본 동작으로 유지 */
+    ['ai1-files','ai1-improvement-files','s1-form-photo'].forEach(function(id){
+      const el=document.getElementById(id);
+      if(el) el.removeAttribute('capture');
+    });
+
+    /* 사진 찍기 전용 input은 capture를 다시 유지합니다. */
+    const camera=document.getElementById('ai1-mobile-camera-input');
+    if(camera) camera.setAttribute('capture','environment');
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setup);
+  else setup();
+  setTimeout(setup, 300);
+})();
+</script>
+
 </body>
+
 <!-- ================================================================
-     MOBILE/FIREBASE SAFETY PROPOSAL SYNC + ENTER LOGIN REPAIR
-     - 안전제안 데이터를 localStorage 단독 저장에서 Firebase Firestore 동기화로 확장
-     - 기존 PC에 저장된 localStorage 안전제안은 최초 로그인/접속 시 Firebase로 이전
-     - 모바일/PC 모두 같은 Firestore 컬렉션을 읽어 동일한 제안 목록을 표시
-     - 로그인 비밀번호 입력창에서 Enter 키로 로그인 가능
+     FINAL CROSS-DEVICE FIREBASE SYNC + ENTER LOGIN REPAIR
+     - 안전제안 원본을 Firestore safetyProposals 컬렉션으로 통합
+     - 로컬 데이터와 클라우드 데이터를 ID 기준으로 병합
+     - 클라우드 문서를 절대 일괄 삭제하지 않아 다른 기기의 데이터를 보호
+     - 저장 즉시 Firestore 반영, onSnapshot으로 PC/모바일 실시간 반영
+     - 대시보드도 동일한 클라우드 데이터로 즉시 갱신
      ================================================================ -->
-<script type="module" id="firebase-safety-proposal-sync-v2">
+<script type="module" id="final-cross-device-sync-v3">
   import {
-    collection,
-    doc,
-    getDocs,
-    setDoc,
-    deleteDoc,
-    onSnapshot,
-    serverTimestamp
+    collection, doc, getDocs, setDoc, onSnapshot, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
   import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 
   const COLLECTION = "safetyProposals";
   const LOCAL_KEY = "gnp_ai1_proposals";
-  let installed = false;
-  let syncing = false;
-  let firstSyncDone = false;
   let unsubscribe = null;
-  let originalGetData = null;
-  let originalSaveData = null;
-  let cloudCache = null;
-  let lastPushedSignature = "";
+  let installed = false;
+  let cloudRows = null;
+  let syncTimer = null;
+  let syncing = false;
+  let lastCloudSignature = "";
 
-  const localRead = () => {
-    try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || "[]"); }
-    catch (_) { return []; }
-  };
-  const localWrite = (data) => {
-    try { localStorage.setItem(LOCAL_KEY, JSON.stringify(data)); } catch (e) { console.warn("안전제안 localStorage 저장 실패", e); }
-  };
-  const safeJsonSize = (value) => {
-    try { return JSON.stringify(value).length; } catch (_) { return 0; }
-  };
-
-  // Firestore 문서 1MB 제한을 피하기 위해 사진이 너무 큰 경우 텍스트 데이터는 보존하고 사진만 제외합니다.
-  function cloudSafeItem(item) {
-    const base = { ...item };
-    const size = safeJsonSize(base);
-    if (size <= 850000) return base;
-    const withoutImprovement = { ...base, improvementPhotoDataUrl: "" };
-    if (safeJsonSize(withoutImprovement) <= 850000) return withoutImprovement;
-    return { ...withoutImprovement, photoDataUrl: "" };
-  }
-
-  const signature = (data) => {
-    try { return JSON.stringify(data); } catch (_) { return String(Date.now()); }
-  };
-
-  async function pushAll(data) {
-    if (!window.gnpFirebase?.db || !window.gnpFirebase?.auth?.currentUser) return;
-    const rows = Array.isArray(data) ? data : [];
-    const sig = signature(rows);
-    if (sig === lastPushedSignature) return;
-    lastPushedSignature = sig;
-    syncing = true;
+  const readLocal = () => {
     try {
-      const col = collection(window.gnpFirebase.db, COLLECTION);
-      const snap = await getDocs(col);
-      const existingIds = new Set(snap.docs.map(d => d.id));
-      const nextIds = new Set();
+      const v = JSON.parse(localStorage.getItem(LOCAL_KEY) || "[]");
+      return Array.isArray(v) ? v : [];
+    } catch (_) { return []; }
+  };
+  const writeLocal = rows => {
+    try { localStorage.setItem(LOCAL_KEY, JSON.stringify(Array.isArray(rows) ? rows : [])); } catch (e) { console.warn("localStorage 저장 실패", e); }
+  };
+  const sig = rows => { try { return JSON.stringify(rows); } catch (_) { return String(Date.now()); } };
 
-      for (const item of rows) {
-        if (!item || item.id == null) continue;
-        const id = String(item.id);
-        nextIds.add(id);
-        const payload = cloudSafeItem(item);
-        await setDoc(doc(window.gnpFirebase.db, COLLECTION, id), {
-          ...payload,
-          _syncVersion: 2,
-          _updatedAt: serverTimestamp(),
-          _updatedByUid: window.gnpFirebase.auth.currentUser.uid,
-          _updatedById: app?.auth?.currentUser?.id || ""
-        }, { merge: true });
-      }
-
-      // 로컬에서 삭제한 제안은 클라우드에서도 삭제하여 PC/모바일 목록을 동일하게 유지합니다.
-      for (const id of existingIds) {
-        if (!nextIds.has(id)) await deleteDoc(doc(window.gnpFirebase.db, COLLECTION, id));
-      }
-    } catch (error) {
-      console.error("Firebase 안전제안 동기화 실패:", error);
-      // 보안 규칙/네트워크 문제로 클라우드 저장이 실패해도 기존 localStorage 데이터는 유지합니다.
-      lastPushedSignature = "";
-    } finally {
-      syncing = false;
-    }
+  function cloudSafe(row) {
+    const x = { ...(row || {}) };
+    // Firestore 문서 1MiB 제한을 고려해 사진은 필요시 단계적으로 축소/제거
+    const size = () => { try { return JSON.stringify(x).length; } catch (_) { return 9999999; } };
+    if (size() > 850000) x.improvementPhotoDataUrl = "";
+    if (size() > 850000) x.photoDataUrl = "";
+    return x;
   }
 
-  async function initialSync() {
-    if (!window.gnpFirebase?.db || !window.gnpFirebase?.auth?.currentUser || !app?.ai1) return;
-    if (firstSyncDone) return;
-    firstSyncDone = true;
-
-    try {
-      const local = originalGetData ? originalGetData() : localRead();
-      const snap = await getDocs(collection(window.gnpFirebase.db, COLLECTION));
-      const cloud = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .map(({ _syncVersion, _updatedAt, _updatedByUid, _updatedById, ...item }) => item);
-
-      if (cloud.length === 0 && local.length > 0) {
-        // 기존 PC에만 있던 안전제안 2건(또는 기존 데이터)을 최초 1회 Firebase로 올립니다.
-        cloudCache = local.slice();
-        localWrite(cloudCache);
-        await pushAll(cloudCache);
-      } else {
-        // 클라우드 자료를 기준으로 하고, 아직 클라우드에 없는 로컬 자료만 추가합니다.
-        const cloudMap = new Map(cloud.map(item => [String(item.id), item]));
-        const localOnly = local.filter(item => item && !cloudMap.has(String(item.id)));
-        const merged = [...cloud];
-        localOnly.forEach(item => { cloudMap.set(String(item.id), item); merged.push(item); });
-        cloudCache = merged;
-        localWrite(merged);
-        if (localOnly.length) await pushAll(merged);
-      }
-
-      lastPushedSignature = signature(cloudCache || []);
-      if (app?.ai1?.render) app.ai1.render();
-    } catch (error) {
-      console.error("Firebase 안전제안 최초 동기화 실패:", error);
-      // Firebase 접근이 실패하면 기존 로컬 데이터를 그대로 사용합니다.
-      cloudCache = originalGetData ? originalGetData() : localRead();
-      if (app?.ai1?.render) app.ai1.render();
-    }
-
-    startRealtimeSync();
-  }
-
-  function startRealtimeSync() {
-    if (unsubscribe || !window.gnpFirebase?.db || !window.gnpFirebase?.auth?.currentUser) return;
-    unsubscribe = onSnapshot(collection(window.gnpFirebase.db, COLLECTION), (snap) => {
-      if (syncing) return;
-      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .map(({ _syncVersion, _updatedAt, _updatedByUid, _updatedById, ...item }) => item);
-      cloudCache = rows;
-      localWrite(rows);
-      lastPushedSignature = signature(rows);
-      if (app?.ai1?.render) app.ai1.render();
-    }, (error) => {
-      console.warn("Firebase 안전제안 실시간 동기화 오류:", error);
+  function normalizeCloud(snap) {
+    return snap.docs.map(d => {
+      const data = d.data() || {};
+      const { _syncVersion, _updatedAt, _updatedByUid, _updatedById, ...row } = data;
+      return { id: String(row.id ?? d.id), ...row };
     });
   }
 
-  function stopRealtimeSync() {
+  async function readCloud() {
+    const snap = await getDocs(collection(window.gnpFirebase.db, COLLECTION));
+    return normalizeCloud(snap);
+  }
+
+  async function pushRows(rows) {
+    if (!window.gnpFirebase?.db || !window.gnpFirebase?.auth?.currentUser) return;
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) return;
+    syncing = true;
+    try {
+      for (const row of list) {
+        if (!row || row.id == null) continue;
+        const id = String(row.id);
+        await setDoc(doc(window.gnpFirebase.db, COLLECTION, id), {
+          ...cloudSafe(row),
+          id,
+          _syncVersion: 3,
+          _updatedAt: serverTimestamp(),
+          _updatedByUid: window.gnpFirebase.auth.currentUser.uid,
+          _updatedById: String(app?.auth?.currentUser?.id || "")
+        }, { merge: true });
+      }
+    } finally { syncing = false; }
+  }
+
+  async function initialMerge() {
+    const local = readLocal();
+    const cloud = await readCloud();
+    const map = new Map();
+    cloud.forEach(r => map.set(String(r.id), r));
+    // 로컬에만 있는 기존 PC/모바일 자료는 클라우드에 추가
+    const localOnly = [];
+    local.forEach(r => {
+      if (!r || r.id == null) return;
+      const id = String(r.id);
+      if (!map.has(id)) { map.set(id, r); localOnly.push(r); }
+    });
+    const merged = Array.from(map.values());
+    cloudRows = merged;
+    writeLocal(merged);
+    if (localOnly.length) await pushRows(localOnly);
+    lastCloudSignature = sig(merged);
+    refreshAll();
+  }
+
+  function startSnapshot() {
+    if (unsubscribe || !window.gnpFirebase?.db) return;
+    unsubscribe = onSnapshot(collection(window.gnpFirebase.db, COLLECTION), snap => {
+      const incoming = normalizeCloud(snap);
+      const incomingSig = sig(incoming);
+      if (incomingSig === lastCloudSignature) return;
+      cloudRows = incoming;
+      lastCloudSignature = incomingSig;
+      writeLocal(incoming);
+      refreshAll();
+    }, err => {
+      console.error("안전제안 Firebase 실시간 동기화 오류", err);
+      window.dispatchEvent(new CustomEvent("gnp-safety-sync-error", { detail: err }));
+    });
+  }
+
+  function stopSnapshot() {
     if (unsubscribe) { try { unsubscribe(); } catch (_) {} unsubscribe = null; }
-    firstSyncDone = false;
-    cloudCache = null;
-    lastPushedSignature = "";
+    cloudRows = null;
+    lastCloudSignature = "";
+  }
+
+  function refreshAll() {
+    try { app?.ai1?.render?.(); } catch (_) {}
+    try { window.safetyProposalUI?.refresh?.(); } catch (_) {}
+    try { window.refreshDashboard?.(); } catch (_) {}
+    document.dispatchEvent(new CustomEvent("gnp-safety-proposals-updated", { detail: { count: cloudRows?.length || 0 } }));
   }
 
   function install() {
-    if (installed || !app?.ai1) return false;
+    if (installed || !window.app?.ai1) return;
     installed = true;
-    originalGetData = app.ai1.getData.bind(app.ai1);
-    originalSaveData = app.ai1.saveData.bind(app.ai1);
+    const originalGet = app.ai1.getData.bind(app.ai1);
+    const originalSave = app.ai1.saveData.bind(app.ai1);
 
-    app.ai1.getData = function () {
-      return Array.isArray(cloudCache) ? cloudCache.slice() : originalGetData();
+    app.ai1.getData = function() {
+      return Array.isArray(cloudRows) ? cloudRows.slice() : originalGet();
     };
 
-    app.ai1.saveData = function (data) {
-      const rows = Array.isArray(data) ? data : [];
-      cloudCache = rows.slice();
-      originalSaveData(rows);
-      // 기존 코드의 동기식 saveData 호출을 깨지 않도록 Promise를 반환하지 않습니다.
-      pushAll(rows);
+    app.ai1.saveData = function(data) {
+      const rows = Array.isArray(data) ? data.slice() : [];
+      cloudRows = rows;
+      writeLocal(rows);
+      const result = originalSave(rows);
+      clearTimeout(syncTimer);
+      syncTimer = setTimeout(async () => {
+        try {
+          await pushRows(rows);
+          const fresh = await readCloud();
+          cloudRows = fresh;
+          writeLocal(fresh);
+          lastCloudSignature = sig(fresh);
+          refreshAll();
+        } catch (e) {
+          console.error("안전제안 저장 Firebase 동기화 실패", e);
+          alert("안전제안은 이 기기에 저장되었지만 Firebase 동기화에 실패했습니다. Firebase Firestore Rules의 safetyProposals 읽기/쓰기 권한을 확인해 주세요.\n\n오류: " + (e?.code || e?.message || e));
+        }
+      }, 50);
+      refreshAll();
+      return result;
     };
 
-    return true;
-  }
-
-  function waitForFirebase() {
-    if (!app?.ai1 || !window.gnpFirebase?.db || !window.gnpFirebase?.auth) {
-      setTimeout(waitForFirebase, 300);
-      return;
-    }
-    install();
-
-    onAuthStateChanged(window.gnpFirebase.auth, async (user) => {
-      stopRealtimeSync();
-      if (!user) return;
-      await initialSync();
+    window.addEventListener("gnp-safety-proposals-force-refresh", async () => {
+      if (!window.gnpFirebase?.auth?.currentUser) return;
+      try { cloudRows = await readCloud(); writeLocal(cloudRows); lastCloudSignature = sig(cloudRows); refreshAll(); } catch (_) {}
     });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", waitForFirebase, { once: true });
-  } else {
-    waitForFirebase();
+  async function boot() {
+    if (!window.gnpFirebase?.db || !window.gnpFirebase?.auth) { setTimeout(boot, 300); return; }
+    install();
+    onAuthStateChanged(window.gnpFirebase.auth, async user => {
+      stopSnapshot();
+      if (!user) return;
+      try {
+        await initialMerge();
+        startSnapshot();
+      } catch (e) {
+        console.error("안전제안 최초 Firebase 동기화 실패", e);
+        alert("Firebase에서 안전제안 데이터를 불러오지 못했습니다. Firestore Rules의 safetyProposals 컬렉션 읽기 권한을 확인해 주세요.\n\n오류: " + (e?.code || e?.message || e));
+      }
+    });
   }
+  boot();
 </script>
 
-<script id="login-enter-repair-v2">
+<script id="final-login-enter-repair-v3">
 (function(){
   function bind(){
-    const pw = document.getElementById('login-pw');
     const id = document.getElementById('login-id');
-    if(!pw || pw.dataset.enterLoginBound === '1') return;
-    pw.dataset.enterLoginBound = '1';
-    const submit = function(event){
-      if(event.key !== 'Enter') return;
-      event.preventDefault();
-      event.stopPropagation();
-      if(typeof app?.auth?.login === 'function') app.auth.login();
-    };
-    pw.addEventListener('keydown', submit);
-    // ID 입력창에서도 Enter를 누르면 로그인되도록 함께 복구합니다.
-    if(id && id.dataset.enterLoginBound !== '1'){
-      id.dataset.enterLoginBound = '1';
-      id.addEventListener('keydown', submit);
-    }
+    const pw = document.getElementById('login-pw');
+    if(!id || !pw) return;
+    [id,pw].forEach(input=>{
+      if(input.dataset.finalEnterBound==='1') return;
+      input.dataset.finalEnterBound='1';
+      input.addEventListener('keydown', function(e){
+        if(e.key !== 'Enter') return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if(typeof app?.auth?.login==='function') {
+          Promise.resolve(app.auth.login()).catch(err=>console.error('Enter 로그인 오류',err));
+        }
+      }, true);
+    });
   }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, {once:true});
-  else bind();
-  setTimeout(bind, 500);
-  setTimeout(bind, 1500);
+  bind();
+  document.addEventListener('DOMContentLoaded', bind, {once:true});
+  setTimeout(bind,300); setTimeout(bind,1000); setTimeout(bind,2000);
 })();
 </script>
-
 </body>
 </html>
