@@ -14008,4 +14008,230 @@ const app = {
 </script>
 
 </body>
+<!-- ================================================================
+     MOBILE/FIREBASE SAFETY PROPOSAL SYNC + ENTER LOGIN REPAIR
+     - 안전제안 데이터를 localStorage 단독 저장에서 Firebase Firestore 동기화로 확장
+     - 기존 PC에 저장된 localStorage 안전제안은 최초 로그인/접속 시 Firebase로 이전
+     - 모바일/PC 모두 같은 Firestore 컬렉션을 읽어 동일한 제안 목록을 표시
+     - 로그인 비밀번호 입력창에서 Enter 키로 로그인 가능
+     ================================================================ -->
+<script type="module" id="firebase-safety-proposal-sync-v2">
+  import {
+    collection,
+    doc,
+    getDocs,
+    setDoc,
+    deleteDoc,
+    onSnapshot,
+    serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+  import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+
+  const COLLECTION = "safetyProposals";
+  const LOCAL_KEY = "gnp_ai1_proposals";
+  let installed = false;
+  let syncing = false;
+  let firstSyncDone = false;
+  let unsubscribe = null;
+  let originalGetData = null;
+  let originalSaveData = null;
+  let cloudCache = null;
+  let lastPushedSignature = "";
+
+  const localRead = () => {
+    try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || "[]"); }
+    catch (_) { return []; }
+  };
+  const localWrite = (data) => {
+    try { localStorage.setItem(LOCAL_KEY, JSON.stringify(data)); } catch (e) { console.warn("안전제안 localStorage 저장 실패", e); }
+  };
+  const safeJsonSize = (value) => {
+    try { return JSON.stringify(value).length; } catch (_) { return 0; }
+  };
+
+  // Firestore 문서 1MB 제한을 피하기 위해 사진이 너무 큰 경우 텍스트 데이터는 보존하고 사진만 제외합니다.
+  function cloudSafeItem(item) {
+    const base = { ...item };
+    const size = safeJsonSize(base);
+    if (size <= 850000) return base;
+    const withoutImprovement = { ...base, improvementPhotoDataUrl: "" };
+    if (safeJsonSize(withoutImprovement) <= 850000) return withoutImprovement;
+    return { ...withoutImprovement, photoDataUrl: "" };
+  }
+
+  const signature = (data) => {
+    try { return JSON.stringify(data); } catch (_) { return String(Date.now()); }
+  };
+
+  async function pushAll(data) {
+    if (!window.gnpFirebase?.db || !window.gnpFirebase?.auth?.currentUser) return;
+    const rows = Array.isArray(data) ? data : [];
+    const sig = signature(rows);
+    if (sig === lastPushedSignature) return;
+    lastPushedSignature = sig;
+    syncing = true;
+    try {
+      const col = collection(window.gnpFirebase.db, COLLECTION);
+      const snap = await getDocs(col);
+      const existingIds = new Set(snap.docs.map(d => d.id));
+      const nextIds = new Set();
+
+      for (const item of rows) {
+        if (!item || item.id == null) continue;
+        const id = String(item.id);
+        nextIds.add(id);
+        const payload = cloudSafeItem(item);
+        await setDoc(doc(window.gnpFirebase.db, COLLECTION, id), {
+          ...payload,
+          _syncVersion: 2,
+          _updatedAt: serverTimestamp(),
+          _updatedByUid: window.gnpFirebase.auth.currentUser.uid,
+          _updatedById: app?.auth?.currentUser?.id || ""
+        }, { merge: true });
+      }
+
+      // 로컬에서 삭제한 제안은 클라우드에서도 삭제하여 PC/모바일 목록을 동일하게 유지합니다.
+      for (const id of existingIds) {
+        if (!nextIds.has(id)) await deleteDoc(doc(window.gnpFirebase.db, COLLECTION, id));
+      }
+    } catch (error) {
+      console.error("Firebase 안전제안 동기화 실패:", error);
+      // 보안 규칙/네트워크 문제로 클라우드 저장이 실패해도 기존 localStorage 데이터는 유지합니다.
+      lastPushedSignature = "";
+    } finally {
+      syncing = false;
+    }
+  }
+
+  async function initialSync() {
+    if (!window.gnpFirebase?.db || !window.gnpFirebase?.auth?.currentUser || !app?.ai1) return;
+    if (firstSyncDone) return;
+    firstSyncDone = true;
+
+    try {
+      const local = originalGetData ? originalGetData() : localRead();
+      const snap = await getDocs(collection(window.gnpFirebase.db, COLLECTION));
+      const cloud = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .map(({ _syncVersion, _updatedAt, _updatedByUid, _updatedById, ...item }) => item);
+
+      if (cloud.length === 0 && local.length > 0) {
+        // 기존 PC에만 있던 안전제안 2건(또는 기존 데이터)을 최초 1회 Firebase로 올립니다.
+        cloudCache = local.slice();
+        localWrite(cloudCache);
+        await pushAll(cloudCache);
+      } else {
+        // 클라우드 자료를 기준으로 하고, 아직 클라우드에 없는 로컬 자료만 추가합니다.
+        const cloudMap = new Map(cloud.map(item => [String(item.id), item]));
+        const localOnly = local.filter(item => item && !cloudMap.has(String(item.id)));
+        const merged = [...cloud];
+        localOnly.forEach(item => { cloudMap.set(String(item.id), item); merged.push(item); });
+        cloudCache = merged;
+        localWrite(merged);
+        if (localOnly.length) await pushAll(merged);
+      }
+
+      lastPushedSignature = signature(cloudCache || []);
+      if (app?.ai1?.render) app.ai1.render();
+    } catch (error) {
+      console.error("Firebase 안전제안 최초 동기화 실패:", error);
+      // Firebase 접근이 실패하면 기존 로컬 데이터를 그대로 사용합니다.
+      cloudCache = originalGetData ? originalGetData() : localRead();
+      if (app?.ai1?.render) app.ai1.render();
+    }
+
+    startRealtimeSync();
+  }
+
+  function startRealtimeSync() {
+    if (unsubscribe || !window.gnpFirebase?.db || !window.gnpFirebase?.auth?.currentUser) return;
+    unsubscribe = onSnapshot(collection(window.gnpFirebase.db, COLLECTION), (snap) => {
+      if (syncing) return;
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .map(({ _syncVersion, _updatedAt, _updatedByUid, _updatedById, ...item }) => item);
+      cloudCache = rows;
+      localWrite(rows);
+      lastPushedSignature = signature(rows);
+      if (app?.ai1?.render) app.ai1.render();
+    }, (error) => {
+      console.warn("Firebase 안전제안 실시간 동기화 오류:", error);
+    });
+  }
+
+  function stopRealtimeSync() {
+    if (unsubscribe) { try { unsubscribe(); } catch (_) {} unsubscribe = null; }
+    firstSyncDone = false;
+    cloudCache = null;
+    lastPushedSignature = "";
+  }
+
+  function install() {
+    if (installed || !app?.ai1) return false;
+    installed = true;
+    originalGetData = app.ai1.getData.bind(app.ai1);
+    originalSaveData = app.ai1.saveData.bind(app.ai1);
+
+    app.ai1.getData = function () {
+      return Array.isArray(cloudCache) ? cloudCache.slice() : originalGetData();
+    };
+
+    app.ai1.saveData = function (data) {
+      const rows = Array.isArray(data) ? data : [];
+      cloudCache = rows.slice();
+      originalSaveData(rows);
+      // 기존 코드의 동기식 saveData 호출을 깨지 않도록 Promise를 반환하지 않습니다.
+      pushAll(rows);
+    };
+
+    return true;
+  }
+
+  function waitForFirebase() {
+    if (!app?.ai1 || !window.gnpFirebase?.db || !window.gnpFirebase?.auth) {
+      setTimeout(waitForFirebase, 300);
+      return;
+    }
+    install();
+
+    onAuthStateChanged(window.gnpFirebase.auth, async (user) => {
+      stopRealtimeSync();
+      if (!user) return;
+      await initialSync();
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", waitForFirebase, { once: true });
+  } else {
+    waitForFirebase();
+  }
+</script>
+
+<script id="login-enter-repair-v2">
+(function(){
+  function bind(){
+    const pw = document.getElementById('login-pw');
+    const id = document.getElementById('login-id');
+    if(!pw || pw.dataset.enterLoginBound === '1') return;
+    pw.dataset.enterLoginBound = '1';
+    const submit = function(event){
+      if(event.key !== 'Enter') return;
+      event.preventDefault();
+      event.stopPropagation();
+      if(typeof app?.auth?.login === 'function') app.auth.login();
+    };
+    pw.addEventListener('keydown', submit);
+    // ID 입력창에서도 Enter를 누르면 로그인되도록 함께 복구합니다.
+    if(id && id.dataset.enterLoginBound !== '1'){
+      id.dataset.enterLoginBound = '1';
+      id.addEventListener('keydown', submit);
+    }
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, {once:true});
+  else bind();
+  setTimeout(bind, 500);
+  setTimeout(bind, 1500);
+})();
+</script>
+
+</body>
 </html>
