@@ -14307,6 +14307,77 @@ const app = {
 })();
 </script>
 
+
+<!-- MOBILE CAMERA BUTTON RESTORE ONLY -->
+<style id="gnp-mobile-camera-restore-style">
+@media (max-width: 768px) {
+  #ai1-mobile-photo-actions {
+    display:grid !important;
+    grid-template-columns:1fr 1fr !important;
+    gap:8px !important;
+    width:100% !important;
+    margin-top:8px !important;
+  }
+  #ai1-mobile-photo-actions > button {
+    min-height:44px !important;
+    width:100% !important;
+    border-radius:12px !important;
+    font-weight:800 !important;
+    white-space:nowrap !important;
+  }
+  #ai1-files {
+    min-height:44px !important;
+    width:100% !important;
+  }
+}
+</style>
+<script id="gnp-mobile-camera-restore-script">
+(function(){
+  function restore(){
+    if (window.innerWidth > 768) return;
+    const input=document.getElementById('ai1-files');
+    if(!input) return;
+
+    let wrap=document.getElementById('ai1-mobile-photo-actions');
+    if(!wrap){
+      wrap=document.createElement('div');
+      wrap.id='ai1-mobile-photo-actions';
+      wrap.innerHTML=
+        '<button type="button" id="ai1-mobile-gallery-btn" class="bg-slate-100 text-slate-800 border border-slate-300"><i class="fas fa-images mr-2"></i>사진첩에서 선택</button>'+
+        '<button type="button" id="ai1-mobile-camera-btn" class="bg-sky-700 text-white"><i class="fas fa-camera mr-2"></i>사진 찍기</button>';
+      input.parentNode.insertBefore(wrap,input.nextSibling);
+
+      const gallery=document.getElementById('ai1-mobile-gallery-btn');
+      const camera=document.getElementById('ai1-mobile-camera-btn');
+
+      gallery.onclick=function(){
+        input.removeAttribute('capture');
+        input.click();
+      };
+
+      camera.onclick=function(){
+        input.setAttribute('capture','environment');
+        input.click();
+      };
+
+      input.addEventListener('change',function(){
+        // 다음 파일 선택은 기본적으로 사진첩 선택으로 유지
+        input.removeAttribute('capture');
+      });
+    }
+    wrap.classList.remove('hidden');
+    wrap.style.display='grid';
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',restore);
+  }else restore();
+  window.addEventListener('load',restore);
+  setTimeout(restore,300);
+  setTimeout(restore,1000);
+})();
+</script>
+
 </body>
 
 <!-- FINAL DATA SYNC ONLY: preserve latest UI, synchronize proposals through Firebase -->
