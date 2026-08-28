@@ -14378,6 +14378,66 @@ const app = {
 })();
 </script>
 
+
+<style id="gnp-mobile-photo-buttons-size-only">
+@media (max-width: 768px) {
+  #ai1-mobile-photo-actions {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+    width: 100% !important;
+    margin-top: 8px !important;
+  }
+
+  #ai1-mobile-photo-actions > button {
+    flex: 1 1 0 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: 42px !important;
+    min-height: 42px !important;
+    padding: 0 8px !important;
+    margin: 0 !important;
+    border-radius: 10px !important;
+    font-size: 13px !important;
+    line-height: 1 !important;
+    font-weight: 700 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    box-sizing: border-box !important;
+  }
+
+  #ai1-mobile-photo-actions > button i {
+    margin-right: 5px !important;
+    font-size: 13px !important;
+  }
+
+  #ai1-files {
+    width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+}
+
+@media (max-width: 390px) {
+  #ai1-mobile-photo-actions {
+    gap: 6px !important;
+  }
+  #ai1-mobile-photo-actions > button {
+    height: 40px !important;
+    min-height: 40px !important;
+    padding: 0 5px !important;
+    font-size: 12px !important;
+  }
+  #ai1-mobile-photo-actions > button i {
+    margin-right: 3px !important;
+    font-size: 12px !important;
+  }
+}
+</style>
+
 </body>
 
 <!-- FINAL DATA SYNC ONLY: preserve latest UI, synchronize proposals through Firebase -->
