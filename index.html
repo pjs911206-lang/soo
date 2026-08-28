@@ -70,74 +70,195 @@
 </style>
 
 
-<style id="mobile-offcanvas-sidebar-fix">
+<style id="mobile-responsive-v1">
+/* =========================================================
+   Mobile / Responsive UI v1
+   - Desktop layout is preserved.
+   - <= 768px: mobile-first navigation and compact spacing.
+   ========================================================= */
 @media (max-width: 768px) {
   html, body { width:100%; min-width:0; overflow:hidden; }
+  body { font-size:14px; }
+
+  /* Login / signup */
+  #auth-layer { padding:16px !important; overflow-y:auto !important; }
+  #login-box, #signup-box {
+    width:100% !important;
+    max-width:420px !important;
+    padding:24px !important;
+    border-radius:18px !important;
+    box-sizing:border-box !important;
+  }
+  #reg-box { width:100% !important; max-width:420px !important; padding:24px !important; box-sizing:border-box !important; }
+  #reg-box .grid.grid-cols-2 { grid-template-columns:1fr !important; }
+
+  /* Sidebar becomes an off-canvas mobile menu. */
+  #main-sidebar {
+    position:fixed !important;
+    left:0 !important;
+    top:0 !important;
+    bottom:0 !important;
+    width:min(82vw, 310px) !important;
+    height:100dvh !important;
+    z-index:1000 !important;
+    transform:translateX(-105%) !important;
+    transition:transform .22s ease !important;
+    box-shadow:16px 0 40px rgba(15,23,42,.22) !important;
+  }
+  #main-sidebar.mobile-open { transform:translateX(0) !important; }
+  #main-sidebar .p-6 { padding:18px !important; }
+  #sidebar-nav { padding-top:10px !important; padding-bottom:10px !important; }
+
+  /* Dimmed backdrop when menu is open. */
+  #mobile-menu-backdrop {
+    position:fixed;
+    inset:0;
+    background:rgba(15,23,42,.45);
+    z-index:999;
+    display:none;
+  }
+  #mobile-menu-backdrop.mobile-open { display:block; }
+
+  /* Main area fills the viewport because sidebar is no longer in flex flow. */
   #main-body {
     width:100vw !important;
     max-width:100vw !important;
     min-width:0 !important;
     height:100dvh !important;
   }
+  #main-body > header {
+    height:60px !important;
+    min-height:60px !important;
+    padding:0 14px !important;
+    gap:8px !important;
+  }
+  #view-title { font-size:16px !important; margin-left:46px !important; }
   #main-body > .flex-1.overflow-y-auto {
-    min-width:0 !important;
+    padding:14px !important;
     overflow-x:hidden !important;
     -webkit-overflow-scrolling:touch;
   }
 
-  /* 모바일에서는 사이드바를 화면 밖으로 숨기고, 햄버거 버튼으로만 표시 */
-  #main-sidebar {
-    position:fixed !important;
-    left:0 !important;
-    top:0 !important;
-    bottom:0 !important;
-    width:min(82vw,310px) !important;
-    height:100dvh !important;
-    z-index:1000 !important;
-    transform:translate3d(-105%,0,0) !important;
-    transition:transform .22s ease !important;
-    box-shadow:16px 0 40px rgba(15,23,42,.22) !important;
-  }
-  #main-sidebar.mobile-open {
-    transform:translate3d(0,0,0) !important;
-  }
-
-  #mobile-menu-backdrop {
-    position:fixed !important;
-    inset:0 !important;
-    background:rgba(15,23,42,.45) !important;
-    z-index:999 !important;
-    display:none !important;
-  }
-  #mobile-menu-backdrop.mobile-open { display:block !important; }
-
+  /* Injected mobile menu button. */
   #mobile-menu-button {
-    position:fixed !important;
-    top:11px !important;
-    left:12px !important;
-    z-index:1100 !important;
-    width:38px !important;
-    height:38px !important;
-    display:inline-flex !important;
-    align-items:center !important;
-    justify-content:center !important;
-    border:1px solid #e2e8f0 !important;
-    border-radius:10px !important;
-    background:#fff !important;
-    color:#0f172a !important;
-    box-shadow:0 2px 8px rgba(15,23,42,.08) !important;
+    position:fixed;
+    top:11px;
+    left:12px;
+    z-index:1100;
+    width:38px;
+    height:38px;
+    flex:0 0 38px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border:1px solid #e2e8f0;
+    border-radius:10px;
+    background:#fff;
+    color:#0f172a;
+    cursor:pointer;
   }
   #mobile-menu-button:active { transform:scale(.97); }
 
-  /* 헤더 제목이 햄버거 버튼과 겹치지 않게 */
-  #view-title { margin-left:46px !important; }
+  /* User area: keep it compact. */
+  #user-role { display:none !important; }
+  #user-info { max-width:78px !important; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #user-avatar { width:32px !important; height:32px !important; }
+  #main-body > header > .flex.items-center.gap-4 { gap:6px !important; }
 
-  /* 메뉴를 열면 내부 탐색 후 자동으로 닫히도록 */
-  #main-sidebar .sidebar-item { -webkit-tap-highlight-color:transparent; }
+  /* AI proposal hero */
+  #view-AI1 > .mb-6 {
+    padding:18px !important;
+    margin-bottom:14px !important;
+    border-radius:16px !important;
+  }
+  #view-AI1 > .mb-6 h3 { font-size:21px !important; }
+  #view-AI1 > .mb-6 p.text-sm { font-size:12px !important; line-height:1.55 !important; }
+  #view-AI1 > .mb-6 .bg-white\/10 { width:100% !important; box-sizing:border-box !important; }
+
+  /* Dashboard cards */
+  #ai1-dashboard { margin-bottom:14px !important; }
+  #ai1-dashboard > div { gap:10px !important; }
+  #ai1-dashboard article { min-height:0 !important; padding:14px !important; border-radius:14px !important; }
+  #ai1-dashboard article .relative.h-\[116px\] { height:110px !important; }
+  #ai1-dashboard article .relative.h-\[122px\] { height:110px !important; }
+
+  /* AI key panel: stack controls so buttons are thumb-friendly. */
+  #ai1-apikey { min-width:0 !important; width:100% !important; }
+  #ai1-apikey + button, #ai1-apikey + button + button { min-height:42px !important; }
+  #ai1-apikey ~ button { flex:0 0 auto !important; }
+  #view-AI1 .bg-sky-50 .flex.gap-2 { flex-wrap:wrap !important; }
+  #view-AI1 .bg-sky-50 .flex.gap-2 input { flex:1 1 100% !important; }
+  #view-AI1 .bg-sky-50 .flex.gap-2 button { flex:1 1 calc(50% - 4px) !important; min-height:40px !important; }
+
+  /* Form cards */
+  #view-AI1 .bg-white.border.rounded-2xl.shadow-sm.p-6 { padding:16px !important; border-radius:14px !important; }
+  #view-AI1 input, #view-AI1 select, #view-AI1 textarea { font-size:14px !important; }
+  #view-AI1 input[type="file"] { min-height:44px !important; padding:8px !important; }
+  #ai1-files { width:100% !important; }
+  #ai1-preview, #ai1-improvement-preview { grid-template-columns:1fr !important; }
+  #ai1-preview img, #ai1-improvement-preview img { max-height:240px !important; object-fit:cover !important; }
+
+  /* Action buttons: full width / easier touch targets. */
+  #ai1-save-btn { min-height:44px !important; }
+  #view-AI1 .flex.flex-col.sm\:flex-row.justify-end { width:100% !important; }
+  #view-AI1 .flex.flex-col.sm\:flex-row.justify-end > button { width:100% !important; min-height:44px !important; }
+
+  /* Management toolbar */
+  #view-AI1 > .mt-6.bg-white > .px-6.py-4 {
+    padding:14px !important;
+    align-items:flex-start !important;
+    flex-direction:column !important;
+    gap:10px !important;
+  }
+  #view-AI1 > .mt-6.bg-white > .px-6.py-4 > div:first-child { width:100% !important; }
+  .ai1-manage-actions { width:100% !important; display:grid !important; grid-template-columns:1fr 1fr !important; gap:7px !important; }
+  .ai1-manage-actions .ai1-action-button { width:100% !important; min-height:40px !important; box-sizing:border-box !important; }
+  .ai1-manage-actions .ai1-count-button { grid-column:1 / -1 !important; }
+
+  /* Filters */
+  #ai1-filter-area { padding:12px !important; }
+  #ai1-filter-area > div { grid-template-columns:1fr !important; }
+  .ai1-filter-control { min-height:42px !important; width:100% !important; box-sizing:border-box !important; }
+  #ai1-date-range-popover { position:fixed !important; left:12px !important; right:12px !important; bottom:12px !important; top:auto !important; width:auto !important; max-height:80dvh !important; overflow:auto !important; margin:0 !important; z-index:1200 !important; }
+
+  /* Table stays readable through horizontal scrolling. */
+  #view-AI1 .overflow-x-auto { -webkit-overflow-scrolling:touch !important; }
+  #view-AI1 table { min-width:860px !important; }
+  #view-AI1 table th, #view-AI1 table td { white-space:nowrap !important; }
+  #ai1-pagination { padding:10px 12px !important; }
+
+  /* Modal */
+  #ai1-measure-modal { padding:8px !important; }
+  #ai1-measure-modal > div { max-width:100% !important; max-height:96dvh !important; border-radius:14px !important; }
+  #ai1-measure-modal .px-5.py-4 { padding:12px !important; }
+  #ai1-measure-modal .px-5.py-4 > div:first-child { min-width:0 !important; }
+  #ai1-measure-modal .px-5.py-4 h5 { font-size:14px !important; }
+  #ai1-measure-modal-content { padding:10px !important; }
+
+  /* Prevent oversized generated content from breaking the viewport. */
+  #view-AI1 * { max-width:100%; }
+  #view-AI1 img, #view-AI1 canvas { max-width:100%; }
+
+  /* Any legacy fixed-width UI inside the app should shrink on mobile. */
+  [style*="width:380px"], [style*="width:400px"], [style*="width:420px"] {
+    max-width:calc(100vw - 24px) !important;
+    box-sizing:border-box !important;
+  }
+
+  /* Firebase bootstrap/admin panel: never cover the mobile UI. */
+  #firebase-v1-panel {
+    left:12px !important;
+    right:12px !important;
+    bottom:12px !important;
+    width:auto !important;
+    max-width:none !important;
+    max-height:70dvh !important;
+    overflow:auto !important;
+  }
 }
+
 @media (min-width:769px) {
-  #mobile-menu-button,
-  #mobile-menu-backdrop { display:none !important; }
+  #mobile-menu-button, #mobile-menu-backdrop { display:none !important; }
 }
 </style>
 
@@ -200,6 +321,8 @@
     </div>
 </div>
 
+<div id="mobile-menu-backdrop" aria-hidden="true"></div>
+
 <!-- [Layer 2] 메인 사이드바 -->
 <aside id="main-sidebar" class="w-64 gnp-blue text-white flex flex-col shadow-2xl z-20 flex-shrink-0 hidden">
     <div class="p-6 border-b border-blue-800 flex items-center gap-3 cursor-pointer" onclick="app.router.go('AI1', '안전제안')">
@@ -213,9 +336,8 @@
 </aside>
 
 <!-- [Layer 3] 메인 본문 -->
-<div id="mobile-menu-backdrop" aria-hidden="true"></div>
-<button id="mobile-menu-button" type="button" aria-label="메뉴 열기" aria-expanded="false"><i class="fas fa-bars"></i></button>
 <main id="main-body" class="flex-1 flex flex-col min-w-0 overflow-hidden hidden">
+    <button id="mobile-menu-button" type="button" aria-label="메뉴 열기" aria-expanded="false"><i class="fas fa-bars"></i></button>
     <header class="bg-white h-16 border-b flex items-center justify-between px-8 shadow-sm">
         <h2 id="view-title" class="text-xl font-bold text-gray-800 tracking-tight">대시보드</h2>
         <div class="flex items-center gap-4">
@@ -970,7 +1092,7 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-slate-600 mb-1">현장 사진 <span class="text-slate-400 font-normal">(선택, 최대 1장)</span></label>
-                                <input id="ai1-files" type="file" accept="image/*" onchange="app.ai1.previewFiles(this.files)" class="w-full border rounded-lg px-3 py-2 text-sm bg-slate-50">
+                                <input id="ai1-files" type="file" accept="image/*" capture="environment" onchange="app.ai1.previewFiles(this.files)" class="w-full border rounded-lg px-3 py-2 text-sm bg-slate-50">
                                 <div id="ai1-preview" class="grid grid-cols-2 gap-2 mt-3"></div>
                             </div>
                             <div>
@@ -1060,7 +1182,7 @@
                             </div>
                             <div class="border border-emerald-100 bg-emerald-50/40 rounded-xl p-4">
                                 <label class="block text-xs font-black text-emerald-800 mb-2"><i class="fas fa-camera mr-1"></i>개선 사진 <span class="font-normal text-emerald-600">(After, 선택 · 최대 1장)</span></label>
-                                <input id="ai1-improvement-files" type="file" accept="image/*" onchange="app.ai1.previewImprovementFiles(this.files)" class="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                                <input id="ai1-improvement-files" type="file" accept="image/*" capture="environment" onchange="app.ai1.previewImprovementFiles(this.files)" class="w-full border rounded-lg px-3 py-2 text-sm bg-white">
                                 <div id="ai1-improvement-preview" class="grid grid-cols-2 gap-2 mt-3"></div>
                                 <button type="button" id="ai1-improvement-photo-edit-btn" onclick="app.ai1.openImprovementPhotoEditor()" class="mt-2 px-3 py-2 border border-emerald-200 bg-white text-emerald-700 rounded-lg text-xs font-bold hover:bg-emerald-100"><i class="fas fa-pen-ruler mr-1"></i>개선사진편집</button>
                             </div>
@@ -10512,7 +10634,7 @@ const app = {
   if(typeof app==='undefined' || !app.ai1 || !app.auth) return;
 
   const ROLE = { MEMBER:'반원', FOREMAN:'반장', LEADER:'팀장', HSE:'HSE' };
-  const roleValues = [ROLE.MEMBER, ROLE.FOREMAN, ROLE.LEADER, ROLE.HSE, '임원'];
+  const roleValues = [ROLE.MEMBER, ROLE.FOREMAN, ROLE.LEADER, ROLE.HSE];
   const scoreDefs = [
     {key:'risk', label:'안전 Risk 개선', max:3, desc:'위험요인 제거 및 안전성 향상 수준'},
     {key:'feasibility', label:'실현 가능성', max:3, desc:'현장 적용 가능성 및 실행 난이도'},
@@ -10742,33 +10864,9 @@ const app = {
     if(team){u.team=team;u.teamManuallyAssigned=true;} if(id!=='admin'&&roleValues.includes(role))u.role=role;
     saveUsers(list); if(user().id===id)app.auth.currentUser=u; renderPermissionV3(); alert('회원 권한을 저장했습니다.');
   };
-  window.safetyRole.deleteUser=async(id)=>{
-    if(!isRoot()||id==='admin')return;
-    const targetId=String(id||'').trim();
-    if(!targetId)return;
-    const target=getUsers().find(u=>String(u?.id||'')===targetId);
-    if(!target)return alert('삭제할 회원을 찾을 수 없습니다.');
-    if(!confirm(`'${target.name||targetId}' (${targetId}) 계정을 완전히 삭제하시겠습니까?\n\nFirebase Authentication과 Firestore 회원 프로필에서도 함께 삭제됩니다.\n삭제 후에는 해당 계정으로 다시 로그인할 수 없습니다.`))return;
-
-    try{
-      const firebase=window.gnpFirebase;
-      if(!firebase?.deleteMemberAccount) throw new Error('Firebase 관리자 삭제 기능이 연결되지 않았습니다. Firebase Functions 배포가 필요합니다.');
-      const result=await firebase.deleteMemberAccount(targetId);
-      if(result?.ok===false) throw new Error(result.message||'Firebase 계정 삭제에 실패했습니다.');
-
-      // 서버에서 Firebase Auth + Firestore 삭제가 성공한 뒤에만 로컬 회원 목록도 제거합니다.
-      saveUsers(getUsers().filter(u=>String(u?.id||'')!==targetId));
-      renderPermissionV3();
-      alert(`회원 삭제 완료\n\n${target.name||targetId} (${targetId})\nFirebase Authentication: 삭제 완료\nFirestore users: 삭제 완료\n로컬 회원 목록: 삭제 완료`);
-    }catch(error){
-      console.error('member delete failed',error);
-      const code = error?.code || "";
-      const detail = String(error?.message || error);
-      const hint = /not-found|NOT_FOUND|functions\/(not-found|unavailable)|404/i.test(code + " " + detail)
-        ? "\n\n※ Firebase Functions의 deleteMemberAccount가 아직 배포되지 않았거나 리전이 맞지 않습니다. 함께 제공한 functions 폴더를 배포하면 해결됩니다."
-        : "";
-      alert(`회원 삭제에 실패했습니다.\n\n${detail}${hint}`);
-    }
+  window.safetyRole.deleteUser=(id)=>{
+    if(!isRoot()||id==='admin')return; if(!confirm('이 계정을 삭제하시겠습니까?'))return;
+    saveUsers(getUsers().filter(u=>u.id!==id));renderPermissionV3();
   };
   window.safetyRole.toggleApprovalMode=()=>{ if(!isRoot())return; localStorage.setItem('gnp_ai1_approval_mode',String(!approvalEnabled()));renderPermissionV3();app.ai1.render();};
 
@@ -11024,7 +11122,7 @@ const app = {
 (function () {
   if (typeof app === 'undefined' || !app.auth || !app.db || !app.ui) return;
 
-  const ROLES = ['반원', '반장', '팀장', 'HSE', '임원'];
+  const ROLES = ['반원', '반장', '팀장', 'HSE'];
 
   function normalizeAndGet(id) {
     const rows = app.auth.normalizeUsers(app.db.getUsers());
@@ -11109,7 +11207,7 @@ const app = {
 (function () {
   if (typeof app === 'undefined' || !app.ai1 || !app.auth || !app.db) return;
 
-  const ROLES = ['HSE', '과장', '대리', '반원', '반장', '부장', '사원', '조장', '차장', '팀장', '파트장', '임원'];
+  const ROLES = ['HSE', '과장', '대리', '반원', '반장', '부장', '사원', '조장', '차장', '팀장', '파트장'];
   const FOREMAN_ROLES = ['반장', '조장'];
   const REVIEW_ROLES = ['반장', '조장', '팀장', 'HSE'];
   const TEAM_CONTROL_ROLES = ['반장', '조장', '팀장', '파트장', 'HSE'];
@@ -12702,7 +12800,7 @@ const app = {
   'use strict';
   if(typeof app==='undefined' || !app.auth || !app.db || !app.ai1) return;
 
-  const ROLES = new Set(['HSE','과장','대리','반원','반장','부장','사원','조장','차장','팀장','파트장']);
+  const ROLES = new Set(['HSE','임원','과장','대리','반원','반장','부장','사원','조장','차장','팀장','파트장']);
   const HSE_IDS = new Set(['박종수','신제우']);
   const PART_LEADER='이정숙', FINAL_LEADER='박신환';
 
@@ -12927,7 +13025,7 @@ const app = {
     if(HSE_IDS.has(id) || id==='admin' || ['MASTER','ADMIN'].includes(String(u?.role||''))) return 'HSE';
     if(id===PART_LEADER) return '파트장';
     if(id===FINAL_LEADER) return '팀장';
-    const allowed=new Set(['HSE','파트장','팀장','반장','조장','반원','사원','대리','과장','차장','부장','임원']);
+    const allowed=new Set(['HSE','임원','파트장','팀장','반장','조장','반원','사원','대리','과장','차장','부장']);
     return allowed.has(String(u?.role||'')) ? String(u.role) : '반원';
   };
   const me=()=>app.auth.currentUser||{};
@@ -13303,8 +13401,7 @@ const app = {
     signOut,
     initializeAuth,
     indexedDBLocalPersistence,
-    inMemoryPersistence,
-    browserSessionPersistence
+    inMemoryPersistence
   } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
   import {
     getFirestore,
@@ -13313,7 +13410,6 @@ const app = {
     setDoc,
     serverTimestamp
   } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
-  import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-functions.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyD7NDBaym7lGl_uP3yaR0hn64mVOI3BVzw",
@@ -13710,26 +13806,6 @@ const app = {
     return { ...(localUser || {}), ...profile, id: profile.legacyId || id, name: profile.name || id, role: profile.role || localUser?.role || "반원", team: profile.team || localUser?.team || "미지정" };
   }
 
-  async function deleteFirebaseMemberAccount(legacyId) {
-    if (!fbApp || !fbAuth || !fbDb) throw new Error("Firebase가 아직 초기화되지 않았습니다.");
-    if (!fbAuth.currentUser) throw new Error("관리자 Firebase 로그인 세션이 없습니다. 다시 로그인해 주세요.");
-
-    const functions = getFunctions(fbApp, "asia-northeast3");
-    const callable = httpsCallable(functions, "deleteMemberAccount");
-    try {
-      const result = await callable({ legacyId: String(legacyId || "").trim() });
-      return result?.data || { ok: true };
-    } catch (error) {
-      console.error("deleteMemberAccount callable failed", error);
-      const code = String(error?.code || "");
-      const message = String(error?.message || "");
-      if (code.includes("functions/not-found") || code.includes("functions/unavailable")) {
-        throw new Error("회원 삭제 서버 함수(deleteMemberAccount)가 배포되지 않았거나 리전(asia-northeast3)이 다릅니다. Firebase Functions를 다시 배포해 주세요.");
-      }
-      throw new Error(message || code || "회원 삭제 서버 함수 호출에 실패했습니다.");
-    }
-  }
-
   async function patchAuth() {
     const legacyApp = getLegacyApp();
     if (!legacyApp?.auth || legacyApp.auth.__firebaseV1Patched) return false;
@@ -13764,20 +13840,6 @@ const app = {
       }
     };
 
-    // 로그인 입력창에서 Enter를 누르면 동일한 로그인 동작을 실행합니다.
-    if (!document.documentElement.dataset.gnpLoginEnterBound) {
-      document.documentElement.dataset.gnpLoginEnterBound = "1";
-      ["login-id", "login-pw"].forEach((fieldId) => {
-        const field = document.getElementById(fieldId);
-        if (!field) return;
-        field.addEventListener("keydown", (event) => {
-          if (event.key !== "Enter") return;
-          event.preventDefault();
-          legacyApp.auth.login();
-        });
-      });
-    }
-
     legacyApp.auth.signup = async function () {
       const name = document.getElementById("reg-name")?.value.trim();
       const team = document.getElementById("reg-team")?.value;
@@ -13810,18 +13872,9 @@ const app = {
       if (!firebaseUser) { refreshPanel(); return; }
       try {
         const profile = await loadFirebaseProfile(firebaseUser);
+        if (!profile) { refreshPanel(); return; }
         const localRows = getLegacyUsers();
-        const local = profile ? localRows.find(u => String(u.id) === String(profile.legacyId || "")) : null;
-        // Firebase Auth는 남아 있어도 Firestore 회원 프로필이 삭제된 계정은 즉시 세션을 폐기합니다.
-        if (!profile || !local) {
-          try { await signOut(fbAuth); } catch (_) { }
-          legacyApp.auth.currentUser = null;
-          document.getElementById("auth-layer")?.classList.remove("hidden");
-          document.getElementById("main-sidebar")?.classList.add("hidden");
-          document.getElementById("main-body")?.classList.add("hidden");
-          refreshPanel();
-          return;
-        }
+        const local = localRows.find(u => String(u.id) === String(profile.legacyId || ""));
         legacyApp.auth.currentUser = { ...(local || {}), ...profile, id: profile.legacyId || local?.id || profile.name, name: profile.name || local?.name, role: profile.role || local?.role || "반원", team: profile.team || local?.team || "미지정" };
         if (getLegacyApp()?.ui?.initSystem && document.getElementById("auth-layer")?.classList.contains("hidden") === false) {
           legacyApp.ui.initSystem();
@@ -13850,13 +13903,7 @@ const app = {
     try {
       const existing = getApps().find(a => a.name === "[DEFAULT]");
       fbApp = existing || initializeApp(firebaseConfig);
-      // 로그인 상태는 현재 브라우저 탭/창의 세션 동안만 유지합니다.
-      // 새로고침은 유지되지만 탭/창을 닫으면 Firebase Auth 세션이 종료됩니다.
-      try {
-        fbAuth = initializeAuth(fbApp, { persistence: browserSessionPersistence });
-      } catch (_) {
-        fbAuth = getAuth(fbApp);
-      }
+      fbAuth = getAuth(fbApp);
       fbDb = getFirestore(fbApp);
       initialized = true;
       window.gnpFirebase = {
@@ -13867,8 +13914,7 @@ const app = {
         version: FIREBASE_SCHEMA_VERSION,
         migrateUsers,
         check: checkFirebase,
-        internalEmail,
-        deleteMemberAccount: deleteFirebaseMemberAccount
+        internalEmail
       };
       ensurePanel();
       const status = document.getElementById("firebase-v1-status");
@@ -13906,7 +13952,7 @@ const app = {
 
 
 
-<!-- FIREBASE BOOTSTRAP VISIBLE PANEL (admin 전용) -->
+<!-- FIREBASE BOOTSTRAP VISIBLE PANEL (항상 표시) -->
 <aside id="firebase-v1-panel" data-bootstrap="1" style="position:fixed;right:18px;bottom:18px;z-index:2147483647;width:380px;max-width:calc(100vw - 36px);background:#fff;border:2px solid #2563eb;border-radius:14px;box-shadow:0 16px 40px rgba(15,23,42,.18);padding:14px;font-family:inherit;display:none">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
     <div><div style="font-size:13px;font-weight:900;color:#0f172a">Firebase 연결 상태</div><div id="firebase-v1-status" style="font-size:11px;color:#64748b;margin-top:3px">Firebase 초기화 대기 중...</div></div>
@@ -13933,899 +13979,243 @@ const app = {
 </script>
 
 
-<!-- FINAL MOBILE SAFETY PROPOSAL CARD LAYOUT PATCH -->
-<style id="final-mobile-safety-proposal-layout">
-@media (max-width: 767px) {
-  /* 안전제안 관리: 모바일에서 표 자체를 가로 스크롤하는 방식 대신 '제안 1건 = 카드 1개'로 재배치 */
-  #view-AI1 .overflow-x-auto {
-    overflow-x: visible !important;
-    overflow-y: visible !important;
-    width: 100% !important;
-  }
-  #view-AI1 .overflow-x-auto > table {
-    display: block !important;
-    width: 100% !important;
-    table-layout: auto !important;
-  }
-  #view-AI1 .overflow-x-auto > table thead { display: none !important; }
-  #view-AI1 .overflow-x-auto > table tbody {
-    display: block !important;
-    width: 100% !important;
-  }
-  #view-AI1 .overflow-x-auto > table tbody tr {
-    display: grid !important;
-    grid-template-columns: minmax(0,1fr) minmax(0,1fr) !important;
-    width: 100% !important;
-    margin: 0 0 14px !important;
-    border: 1px solid #e2e8f0 !important;
-    border-radius: 16px !important;
-    overflow: hidden !important;
-    background: #fff !important;
-    box-shadow: 0 3px 12px rgba(15,23,42,.06) !important;
-  }
-  #view-AI1 .overflow-x-auto > table tbody tr:last-child { margin-bottom: 0 !important; }
-  #view-AI1 .overflow-x-auto > table tbody tr > td {
-    display: flex !important;
-    align-items: center !important;
-    min-width: 0 !important;
-    width: auto !important;
-    max-width: none !important;
-    padding: 12px 14px !important;
-    border: 0 !important;
-    border-bottom: 1px solid #f1f5f9 !important;
-    white-space: normal !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-    font-size: 12px !important;
-  }
-  /* 카드 상단 */
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(1) {
-    grid-column: 1 !important;
-    grid-row: 1 !important;
-    color: #64748b !important;
-    font-size: 11px !important;
-  }
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(3) {
-    grid-column: 2 !important;
-    grid-row: 1 !important;
-    justify-content: flex-end !important;
-  }
-  /* 사업장/장소 */
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(2) {
-    grid-column: 1 / -1 !important;
-    grid-row: 2 !important;
-    display: block !important;
-    padding-top: 10px !important;
-    padding-bottom: 10px !important;
-  }
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(2) b {
-    display: block !important;
-    font-size: 15px !important;
-    line-height: 1.35 !important;
-  }
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(2) span { line-height: 1.35 !important; }
-  /* 안전제안 내용 */
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(4) {
-    grid-column: 1 / -1 !important;
-    grid-row: 3 !important;
-    display: block !important;
-    padding-top: 13px !important;
-    padding-bottom: 13px !important;
-    background: #f8fafc !important;
-  }
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(4) button {
-    display: block !important;
-    width: 100% !important;
-    min-width: 0 !important;
-  }
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(4) span {
-    white-space: normal !important;
-    overflow-wrap: anywhere !important;
-  }
-  /* 평가 / 상태 */
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(5) {
-    grid-column: 1 !important;
-    grid-row: 4 !important;
-    justify-content: flex-start !important;
-  }
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(6) {
-    grid-column: 2 !important;
-    grid-row: 4 !important;
-    justify-content: flex-end !important;
-  }
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(6) select {
-    max-width: 125px !important;
-    width: 100% !important;
-    min-width: 0 !important;
-  }
-  /* 관리 버튼: 1열 세로 나열을 없애고 2열 버튼 그리드 */
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(7) {
-    grid-column: 1 / -1 !important;
-    grid-row: 5 !important;
-    display: grid !important;
-    grid-template-columns: repeat(2, minmax(0,1fr)) !important;
-    gap: 7px !important;
-    align-items: stretch !important;
-    padding: 12px 14px !important;
-    border-bottom: 0 !important;
-    background: #fff !important;
-  }
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(7) > div {
-    display: contents !important;
-  }
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(7) button {
-    width: 100% !important;
-    min-width: 0 !important;
-    min-height: 38px !important;
-    margin: 0 !important;
-    padding: 8px 6px !important;
-    border-radius: 9px !important;
-    white-space: nowrap !important;
-    font-size: 11px !important;
-    line-height: 1.1 !important;
-    box-sizing: border-box !important;
-  }
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(7) select { width:100% !important; }
-
-  /* 상단 관리 도구도 모바일 폭에 맞춰 2열로 고정 */
-  #view-AI1 .ai1-manage-actions {
-    display: grid !important;
-    grid-template-columns: repeat(2, minmax(0,1fr)) !important;
-    width: 100% !important;
-    gap: 7px !important;
-    margin-top: 9px !important;
-  }
-  #view-AI1 .ai1-manage-actions .ai1-action-button {
-    width: 100% !important;
-    min-width: 0 !important;
-    flex: none !important;
-    height: 38px !important;
-    padding: 0 8px !important;
-    font-size: 11px !important;
-  }
-  #view-AI1 .ai1-manage-actions .ai1-count-button { grid-column: 1 / -1 !important; }
-
-  /* 페이지 하단 여백 */
-  #view-AI1 #ai1-pagination {
-    padding: 12px 14px !important;
-    align-items: center !important;
-  }
-}
-
-/* 아주 작은 화면에서도 버튼 문구가 깨지지 않도록 한 단계 더 압축 */
-@media (max-width: 380px) {
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(7) button {
-    font-size: 10px !important;
-    padding-left: 3px !important;
-    padding-right: 3px !important;
-  }
-  #view-AI1 .overflow-x-auto > table tbody tr > td:nth-child(6) select { max-width: 112px !important; }
-}
-</style>
-
-<script id="mobile-offcanvas-sidebar-script">
-(function () {
-  function isMobile() { return window.innerWidth <= 768; }
-  function getEls() {
-    return {
-      sidebar: document.getElementById('main-sidebar'),
-      button: document.getElementById('mobile-menu-button'),
-      backdrop: document.getElementById('mobile-menu-backdrop')
-    };
-  }
-  function setOpen(open) {
-    const { sidebar, button, backdrop } = getEls();
-    if (!sidebar || !button || !backdrop) return;
-    if (!isMobile()) open = false;
-    sidebar.classList.toggle('mobile-open', open);
-    backdrop.classList.toggle('mobile-open', open);
-    button.setAttribute('aria-expanded', open ? 'true' : 'false');
-    button.setAttribute('aria-label', open ? '메뉴 닫기' : '메뉴 열기');
-    const icon = button.querySelector('i');
-    if (icon) {
-      icon.classList.toggle('fa-bars', !open);
-      icon.classList.toggle('fa-times', open);
-    }
-  }
-  function bind() {
-    const { button, backdrop, sidebar } = getEls();
-    if (!button || button.dataset.bound === '1') return;
-    button.dataset.bound = '1';
-    button.addEventListener('click', function () {
-      const open = sidebar?.classList.contains('mobile-open');
-      setOpen(!open);
-    });
-    backdrop?.addEventListener('click', () => setOpen(false));
-    sidebar?.addEventListener('click', function (e) {
-      const item = e.target.closest('.sidebar-item, #permission-nav-v3, #permission-nav-item, #permission-nav-v2');
-      if (item && isMobile()) setTimeout(() => setOpen(false), 50);
-    });
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') setOpen(false);
-    });
-    window.addEventListener('resize', function () {
-      if (!isMobile()) setOpen(false);
-    });
-    setOpen(false);
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bind, { once:true });
-  } else {
-    bind();
-  }
-  window.mobileSidebar = { open: () => setOpen(true), close: () => setOpen(false), toggle: () => {
-    const { sidebar } = getEls(); setOpen(!sidebar?.classList.contains('mobile-open'));
-  }};
-})();
-</script>
-
-
-
-<!-- FINAL UX PATCH: 최신 안전제안 우선 + 전체보기 액션 정렬 -->
-<style id="final-safety-proposal-ux-patch">
-  #ai1-preview-action-buttons {
-    display:flex !important;
-    align-items:center !important;
-    justify-content:flex-end !important;
-    gap:6px !important;
-    flex-wrap:wrap !important;
-    margin-left:auto !important;
-  }
-  #ai1-preview-action-buttons button,
-  #ai1-preview-action-buttons select {
-    box-sizing:border-box !important;
-    min-height:38px !important;
-    height:38px !important;
-    white-space:nowrap !important;
-    word-break:keep-all !important;
-    line-height:1 !important;
-    display:inline-flex !important;
-    align-items:center !important;
-    justify-content:center !important;
-  }
-  @media (max-width: 768px) {
-    #ai1-preview-action-buttons {
-      width:100% !important;
-      margin:8px 0 0 !important;
-      display:grid !important;
-      grid-template-columns:repeat(2,minmax(0,1fr)) !important;
-      gap:6px !important;
-      order:3 !important;
-      flex-basis:100% !important;
-    }
-    #ai1-preview-action-buttons button,
-    #ai1-preview-action-buttons select {
-      width:100% !important;
-      min-width:0 !important;
-      padding:0 8px !important;
-      font-size:12px !important;
-    }
-    #ai1-measure-modal > div > div:first-child {
-      flex-wrap:wrap !important;
-      align-items:flex-start !important;
-    }
-    #ai1-measure-modal > div > div:first-child > div:first-child {
-      flex:1 1 auto !important;
-      min-width:0 !important;
-    }
-  }
-</style>
-<script id="final-safety-proposal-ux-patch-script">
+<script id="mobile-responsive-js">
 (function(){
-  'use strict';
-  if (typeof app === 'undefined' || !app.ai1) return;
-
-  // 1) 안전제안 목록은 항상 최신 등록건부터 표시합니다.
-  const parseTime = (item) => {
-    if (!item) return 0;
-    const created = item.createdAt || item.created_at || item.timestamp;
-    if (created) {
-      const t = Date.parse(created);
-      if (!Number.isNaN(t)) return t;
-      const n = Number(created);
-      if (Number.isFinite(n)) return n;
+  function initMobileNav(){
+    const btn=document.getElementById('mobile-menu-button');
+    const side=document.getElementById('main-sidebar');
+    const backdrop=document.getElementById('mobile-menu-backdrop');
+    if(!btn || !side || !backdrop || btn.dataset.bound) return;
+    btn.dataset.bound='1';
+    function setOpen(open){
+      side.classList.toggle('mobile-open',open);
+      backdrop.classList.toggle('mobile-open',open);
+      btn.setAttribute('aria-expanded',String(open));
+      btn.innerHTML=open ? '<i class="fas fa-xmark"></i>' : '<i class="fas fa-bars"></i>';
+      document.body.classList.toggle('mobile-menu-open',open);
     }
-    const idMatch = String(item.id || '').match(/(\d{10,})$/);
-    if (idMatch) {
-      const n = Number(idMatch[1]);
-      if (Number.isFinite(n)) return n;
-    }
-    const d = String(item.date || '').replace(/\./g,'-').trim();
-    const t2 = Date.parse(d);
-    return Number.isNaN(t2) ? 0 : t2;
-  };
-
-  if (!app.ai1.__latestFirstPatch) {
-    const originalFiltered = app.ai1.getFilteredData ? app.ai1.getFilteredData.bind(app.ai1) : null;
-    app.ai1.getFilteredData = function(){
-      const list = originalFiltered ? originalFiltered() : this.getData();
-      return Array.isArray(list)
-        ? list.slice().sort((a,b)=>parseTime(b)-parseTime(a))
-        : [];
-    };
-    app.ai1.__latestFirstPatch = true;
+    btn.addEventListener('click',()=>setOpen(!side.classList.contains('mobile-open')));
+    backdrop.addEventListener('click',()=>setOpen(false));
+    side.addEventListener('click',(e)=>{
+      if(e.target.closest('.sidebar-item') || e.target.closest('#permission-nav-v3') || e.target.closest('#permission-nav-item') || e.target.closest('#permission-nav-v2')) setOpen(false);
+    });
+    window.addEventListener('resize',()=>{ if(window.innerWidth>768) setOpen(false); });
+    window.gnpMobileNav={setOpen};
   }
-
-  // 2) 전체보기 상단 액션 버튼을 한 곳에 모으고 항상 같은 순서로 정렬합니다.
-  function arrangePreviewActions(){
-    const modal = document.getElementById('ai1-measure-modal');
-    if (!modal || modal.classList.contains('hidden')) return;
-    const header = modal.querySelector(':scope > div > div:first-child');
-    const actionBox = document.getElementById('ai1-preview-action-buttons');
-    const print = document.getElementById('ai1-preview-print-btn');
-    if (!header || !actionBox || !print) return;
-
-    // 인쇄 버튼을 액션 그룹으로 이동하고, 닫기 버튼은 헤더의 마지막에 둡니다.
-    if (print.parentElement !== actionBox) actionBox.insertBefore(print, actionBox.firstChild);
-
-    // 상태 선택상자/버튼은 상태변경 그룹으로 묶을 수 있으면 시각적으로 인접시킵니다.
-    const statusSelect = actionBox.querySelector('select[data-live-detail-status]');
-    const statusBtn = actionBox.querySelector('button[data-live-detail-extra="status"]');
-    if (statusSelect && statusBtn) {
-      statusSelect.style.marginRight = '0px';
-      statusBtn.style.marginLeft = '0px';
-    }
-
-    // 버튼 종류별로 확실한 순서를 부여합니다: 인쇄 → 점수평가 → 상태변경 → 결재.
-    const children = Array.from(actionBox.children);
-    const scoreBtn = children.find(x => (x.textContent||'').includes('점수평가'));
-    const approveBtn = children.find(x => (x.textContent||'').includes('결재하기'));
-    const ordered = [print, scoreBtn, statusSelect, statusBtn, approveBtn].filter(Boolean);
-    ordered.forEach(el => actionBox.appendChild(el));
-
-    const close = header.querySelector('button[onclick*="closeMeasureModal"]');
-    if (close) {
-      close.style.flex = '0 0 38px';
-      close.style.width = '38px';
-      close.style.height = '38px';
-      close.style.marginLeft = '6px';
-      header.appendChild(close);
-    }
-  }
-
-  if (!app.ai1.__previewActionArrangePatch && typeof app.ai1.showMeasure === 'function') {
-    const originalShow = app.ai1.showMeasure.bind(app.ai1);
-    app.ai1.showMeasure = function(id){
-      const result = originalShow(id);
-      setTimeout(arrangePreviewActions, 0);
-      setTimeout(arrangePreviewActions, 80);
-      return result;
-    };
-    app.ai1.__previewActionArrangePatch = true;
-  }
-
-  document.addEventListener('click', function(e){
-    const btn = e.target && e.target.closest ? e.target.closest('button') : null;
-    if (btn && /전체보기/.test(btn.textContent||'')) {
-      setTimeout(arrangePreviewActions, 0);
-      setTimeout(arrangePreviewActions, 120);
-    }
-  }, true);
-
-  // 데이터/권한/상태 변경 후에도 목록을 최신순으로 즉시 재정렬합니다.
-  setTimeout(()=>{ try{ app.ai1.render(); }catch(_){} }, 0);
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',initMobileNav,{once:true});
+  else initMobileNav();
 })();
 </script>
 
 </body>
-</html>
 
-<!-- FINAL MOBILE PERMISSION + APPROVAL LAYOUT PATCH -->
-<style id="final-mobile-permission-approval-ui">
-  /* ----------------------------
-     1) 모바일 권한 설정: 가로 스크롤 대신 카드형으로 표시
-     ---------------------------- */
-  @media (max-width: 768px) {
-    #view-PERM-V3,
-    #view-PERM {
-      width: 100% !important;
-      max-width: 100% !important;
-      min-width: 0 !important;
-      overflow-x: hidden !important;
-    }
+<!-- ================================================================
+     FINAL CROSS-DEVICE FIREBASE SYNC + ENTER LOGIN REPAIR
+     - 안전제안 원본을 Firestore safetyProposals 컬렉션으로 통합
+     - 로컬 데이터와 클라우드 데이터를 ID 기준으로 병합
+     - 클라우드 문서를 절대 일괄 삭제하지 않아 다른 기기의 데이터를 보호
+     - 저장 즉시 Firestore 반영, onSnapshot으로 PC/모바일 실시간 반영
+     - 대시보드도 동일한 클라우드 데이터로 즉시 갱신
+     ================================================================ -->
+<script type="module" id="final-cross-device-sync-v3">
+  import {
+    collection, doc, getDocs, setDoc, onSnapshot, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+  import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 
-    #view-PERM-V3 .overflow-x-auto,
-    #view-PERM .overflow-x-auto,
-    #view-PERM-V3 .perm-v2-table-wrap,
-    #view-PERM .perm-v2-table-wrap {
-      overflow-x: visible !important;
-      width: 100% !important;
-      max-width: 100% !important;
-    }
+  const COLLECTION = "safetyProposals";
+  const LOCAL_KEY = "gnp_ai1_proposals";
+  let unsubscribe = null;
+  let installed = false;
+  let cloudRows = null;
+  let syncTimer = null;
+  let syncing = false;
+  let lastCloudSignature = "";
 
-    #view-PERM-V3 table,
-    #view-PERM table,
-    #view-PERM-V3 table.min-w-full,
-    #view-PERM table.min-w-full {
-      display: block !important;
-      width: 100% !important;
-      min-width: 0 !important;
-      max-width: 100% !important;
-      border: 0 !important;
-    }
-
-    #view-PERM-V3 thead,
-    #view-PERM thead {
-      display: none !important;
-    }
-
-    #view-PERM-V3 tbody,
-    #view-PERM tbody {
-      display: block !important;
-      width: 100% !important;
-    }
-
-    #view-PERM-V3 tbody tr,
-    #view-PERM tbody tr {
-      display: grid !important;
-      grid-template-columns: 1fr 1fr !important;
-      gap: 10px 12px !important;
-      width: 100% !important;
-      box-sizing: border-box !important;
-      margin: 0 0 12px !important;
-      padding: 14px !important;
-      border: 1px solid #e2e8f0 !important;
-      border-radius: 14px !important;
-      background: #fff !important;
-      box-shadow: 0 2px 10px rgba(15,23,42,.05) !important;
-    }
-
-    #view-PERM-V3 tbody td,
-    #view-PERM tbody td {
-      display: block !important;
-      width: auto !important;
-      min-width: 0 !important;
-      max-width: 100% !important;
-      padding: 0 !important;
-      border: 0 !important;
-      text-align: left !important;
-      vertical-align: middle !important;
-      box-sizing: border-box !important;
-    }
-
-    /* 첫 번째 칸: 이름/ID */
-    #view-PERM-V3 tbody td:first-child,
-    #view-PERM tbody td:first-child {
-      grid-column: 1 / -1 !important;
-      padding-bottom: 2px !important;
-      border-bottom: 1px solid #f1f5f9 !important;
-    }
-
-    /* 팀 / 권한 */
-    #view-PERM-V3 tbody td:nth-child(2),
-    #view-PERM-V3 tbody td:nth-child(3),
-    #view-PERM tbody td:nth-child(2),
-    #view-PERM tbody td:nth-child(3) {
-      width: 100% !important;
-    }
-
-    /* 관리 버튼 */
-    #view-PERM-V3 tbody td:last-child,
-    #view-PERM tbody td:last-child {
-      grid-column: 1 / -1 !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: flex-end !important;
-      gap: 7px !important;
-      padding-top: 2px !important;
-    }
-
-    #view-PERM-V3 tbody select,
-    #view-PERM tbody select {
-      width: 100% !important;
-      min-width: 0 !important;
-      max-width: 100% !important;
-      min-height: 40px !important;
-      height: 40px !important;
-      padding: 0 10px !important;
-      font-size: 12px !important;
-      line-height: 1 !important;
-      white-space: nowrap !important;
-      word-break: keep-all !important;
-      box-sizing: border-box !important;
-    }
-
-    #view-PERM-V3 tbody td:last-child button,
-    #view-PERM tbody td:last-child button {
-      min-height: 40px !important;
-      height: 40px !important;
-      padding: 0 13px !important;
-      white-space: nowrap !important;
-      word-break: keep-all !important;
-      line-height: 1 !important;
-      flex: 0 0 auto !important;
-      box-sizing: border-box !important;
-    }
-
-    #view-PERM-V3 .team-manager-list,
-    #view-PERM .team-manager-list {
-      width: 100% !important;
-      max-width: 100% !important;
-    }
-
-    #view-PERM-V3 .team-manager-chip,
-    #view-PERM .team-manager-chip {
-      max-width: 100% !important;
-    }
-
-    /* 권한 화면의 긴 안내문이 화면 폭을 밀어내지 않도록 */
-    #view-PERM-V3 p,
-    #view-PERM p,
-    #view-PERM-V3 h3,
-    #view-PERM-V3 h4,
-    #view-PERM h3,
-    #view-PERM h4 {
-      overflow-wrap: break-word !important;
-      word-break: keep-all !important;
-    }
-
-    /* ----------------------------
-       2) 안전제안 전체보기 헤더: 제목 중앙 / 버튼 오른쪽 정렬
-       ---------------------------- */
-    #ai1-measure-modal > div > div:first-child {
-      position: relative !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      min-height: 58px !important;
-      padding: 10px 92px !important;
-      box-sizing: border-box !important;
-    }
-
-    #ai1-measure-modal > div > div:first-child > div:first-child {
-      width: 100% !important;
-      min-width: 0 !important;
-      margin: 0 !important;
-      text-align: center !important;
-    }
-
-    #ai1-measure-modal-title,
-    #ai1-measure-modal > div > div:first-child h5,
-    #ai1-measure-modal > div > div:first-child p {
-      text-align: center !important;
-      white-space: nowrap !important;
-      overflow: hidden !important;
-      text-overflow: ellipsis !important;
-    }
-
-    #ai1-measure-modal > div > div:first-child > div:last-child {
-      position: absolute !important;
-      top: 50% !important;
-      right: 10px !important;
-      transform: translateY(-50%) !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: flex-end !important;
-      flex-wrap: nowrap !important;
-      gap: 6px !important;
-      margin: 0 !important;
-    }
-
-    #ai1-preview-action-buttons {
-      display: inline-flex !important;
-      align-items: center !important;
-      justify-content: flex-end !important;
-      flex-wrap: nowrap !important;
-      gap: 6px !important;
-      order: 0 !important;
-    }
-
-    #ai1-preview-action-buttons button,
-    #ai1-preview-print-btn,
-    #ai1-measure-modal > div > div:first-child > div:last-child > button {
-      min-width: 40px !important;
-      min-height: 36px !important;
-      height: 36px !important;
-      padding: 0 9px !important;
-      white-space: nowrap !important;
-      word-break: keep-all !important;
-      line-height: 1 !important;
-      flex: 0 0 auto !important;
-    }
-
-    /* 좁은 화면에서는 아이콘 중심으로 공간을 절약 */
-    @media (max-width: 430px) {
-      #ai1-measure-modal > div > div:first-child {
-        padding-left: 72px !important;
-        padding-right: 74px !important;
-      }
-      #ai1-preview-action-buttons button,
-      #ai1-preview-print-btn {
-        padding: 0 7px !important;
-        font-size: 10px !important;
-      }
-    }
-  }
-
-  /* ----------------------------
-     3) 안전제안서 결재란: PC/모바일 모두 중앙정렬 + 줄바꿈 방지
-     ---------------------------- */
-  #ai1-pdf-sheet .sign,
-  #ai1-pdf-sheet .sign .role-row,
-  #ai1-pdf-sheet .sign .signature-row {
-    table-layout: fixed !important;
-  }
-
-  #ai1-pdf-sheet .sign td,
-  #ai1-pdf-sheet .sign th,
-  #ai1-pdf-sheet .sign .vertical,
-  #ai1-pdf-sheet .sign .card-title {
-    text-align: center !important;
-    vertical-align: middle !important;
-  }
-
-  #ai1-pdf-sheet .sign .vertical,
-  #ai1-pdf-sheet .sign .card-title,
-  #ai1-pdf-sheet .sign .role-row td {
-    white-space: nowrap !important;
-    word-break: keep-all !important;
-    overflow-wrap: normal !important;
-  }
-
-  /* 양쪽 부서명 칸을 넓혀 '인사환경팀'이 한 줄로 들어가도록 */
-  #ai1-pdf-sheet .sign col:first-child { width: 30px !important; }
-  #ai1-pdf-sheet .sign col:nth-child(5) { width: 30px !important; }
-  #ai1-pdf-sheet .sign .vertical { min-width: 30px !important; }
-
-  /* 모바일에서도 이 테이블만큼은 고정 폭 A4 양식 내부에서 깨지지 않도록 */
-  @media (max-width: 768px) {
-    #ai1-pdf-sheet .sign {
-      width: 100% !important;
-      min-width: 100% !important;
-    }
-    #ai1-pdf-sheet .sign .vertical {
-      font-size: 11px !important;
-    }
-  }
-</style>
-
-<script id="final-role-preservation-patch">
-(function(){
-  'use strict';
-  if (typeof app === 'undefined' || !app.auth || !app.db) return;
-
-  /* 권한 설정 V3 드롭다운에서 임원을 선택할 수 있도록 역할 목록을 확장합니다. */
-  try {
-    if (typeof roleValues !== 'undefined' && Array.isArray(roleValues) && !roleValues.includes('임원')) {
-      roleValues.push('임원');
-    }
-  } catch (_) {}
-
-  /* 기존의 후속 정규화 패치가 임원을 반원으로 되돌리지 않도록 마지막 정규화기에서 보존합니다. */
-  const previousNormalize = app.auth.normalizeUsers?.bind(app.auth);
-  if (previousNormalize && !app.auth.__executiveRoleFinalized) {
-    app.auth.__executiveRoleFinalized = true;
-    app.auth.normalizeUsers = function(items){
-      const before = Array.isArray(items) ? items : [];
-      const executiveIds = new Set(before.filter(u => String(u?.role || '') === '임원').map(u => String(u?.id || '')));
-      const rows = previousNormalize(before) || before;
-      let changed = false;
-      rows.forEach(u => {
-        if (!u) return;
-        if (executiveIds.has(String(u.id || '')) && u.role !== '임원') {
-          u.role = '임원';
-          changed = true;
-        }
-      });
-      if (changed) {
-        try { app.db.saveUsers(rows); } catch (_) {}
-      }
-      return rows;
-    };
-  }
-
-  /* 저장 직전/직후 역할 선택지에 임원을 보충하고 현재 값도 그대로 유지합니다. */
-  function ensureExecutiveOptions(){
+  const readLocal = () => {
     try {
-      document.querySelectorAll('select[id^="spr-role-"]').forEach(select => {
-        if (!Array.from(select.options).some(o => o.value === '임원')) {
-          const option = document.createElement('option');
-          option.value = '임원'; option.textContent = '임원';
-          select.appendChild(option);
-        }
-      });
-    } catch (_) {}
-  }
-
-  document.addEventListener('DOMContentLoaded', ensureExecutiveOptions, {once:true});
-  setTimeout(ensureExecutiveOptions, 300);
-  setTimeout(ensureExecutiveOptions, 1200);
-  new MutationObserver(() => ensureExecutiveOptions()).observe(document.body, {childList:true, subtree:true});
-})();
-</script>
-
-
-
-<!-- FINAL CORRECTION: executive role persistence + mobile preview action layout + narrow approval columns -->
-<style id="final-correction-v2">
-  /* PC/모바일 공통: 결재란은 원래 좁은 열 폭을 유지하되 텍스트는 줄바꿈하지 않습니다. */
-  #ai1-pdf-sheet .sign col:first-child,
-  #ai1-pdf-sheet .sign col:nth-child(5) { width:30px !important; }
-  #ai1-pdf-sheet .sign .vertical {
-    width:30px !important;
-    min-width:30px !important;
-    max-width:30px !important;
-    white-space:nowrap !important;
-    word-break:keep-all !important;
-    overflow-wrap:normal !important;
-    text-align:center !important;
-    vertical-align:middle !important;
-  }
-
-  /* 모바일 전체보기: 제목을 중앙에 고정하고 액션은 2열 카드형으로 정렬 */
-  @media (max-width:768px) {
-    #ai1-measure-modal > div > div:first-child {
-      position:relative !important;
-      display:grid !important;
-      grid-template-columns:1fr !important;
-      grid-template-rows:auto auto !important;
-      align-items:center !important;
-      justify-items:stretch !important;
-      min-height:0 !important;
-      padding:12px 48px 12px 12px !important;
-      gap:8px !important;
-    }
-    #ai1-measure-modal > div > div:first-child > div:first-child {
-      width:100% !important;
-      min-width:0 !important;
-      text-align:center !important;
-      margin:0 !important;
-    }
-    #ai1-measure-modal-title,
-    #ai1-measure-modal > div > div:first-child h5 {
-      width:100% !important;
-      text-align:center !important;
-      white-space:nowrap !important;
-      overflow:hidden !important;
-      text-overflow:ellipsis !important;
-      font-size:14px !important;
-    }
-    #ai1-measure-modal > div > div:first-child p {
-      text-align:center !important;
-      white-space:nowrap !important;
-      overflow:hidden !important;
-      text-overflow:ellipsis !important;
-      font-size:10px !important;
-    }
-    #ai1-measure-modal > div > div:first-child > div:last-child {
-      position:static !important;
-      transform:none !important;
-      width:100% !important;
-      min-width:0 !important;
-      margin:0 !important;
-      display:block !important;
-    }
-    #ai1-preview-action-buttons {
-      width:100% !important;
-      margin:0 !important;
-      display:grid !important;
-      grid-template-columns:repeat(2,minmax(0,1fr)) !important;
-      gap:7px !important;
-      align-items:stretch !important;
-      justify-content:stretch !important;
-    }
-    #ai1-preview-action-buttons button,
-    #ai1-preview-action-buttons select,
-    #ai1-preview-print-btn {
-      width:100% !important;
-      min-width:0 !important;
-      height:38px !important;
-      min-height:38px !important;
-      margin:0 !important;
-      padding:0 7px !important;
-      font-size:11px !important;
-      line-height:1 !important;
-      white-space:nowrap !important;
-      word-break:keep-all !important;
-      overflow:hidden !important;
-      text-overflow:ellipsis !important;
-      box-sizing:border-box !important;
-      display:inline-flex !important;
-      align-items:center !important;
-      justify-content:center !important;
-    }
-    #ai1-measure-modal > div > div:first-child > div:last-child > button[onclick*="closeMeasureModal"] {
-      position:absolute !important;
-      top:10px !important;
-      right:10px !important;
-      width:34px !important;
-      height:34px !important;
-      min-width:34px !important;
-      min-height:34px !important;
-      margin:0 !important;
-      padding:0 !important;
-      z-index:3 !important;
-      display:inline-flex !important;
-      align-items:center !important;
-      justify-content:center !important;
-    }
-    /* 좁은 폰에서도 제목 영역 때문에 액션이 밀리지 않도록 */
-    @media (max-width:380px) {
-      #ai1-measure-modal > div > div:first-child { padding-right:44px !important; }
-      #ai1-preview-action-buttons { gap:5px !important; }
-      #ai1-preview-action-buttons button,
-      #ai1-preview-action-buttons select,
-      #ai1-preview-print-btn { font-size:10px !important; padding:0 5px !important; }
-    }
-  }
-</style>
-<script id="final-executive-role-persistence">
-(function(){
-  'use strict';
-  if (typeof app === 'undefined' || !app.auth || !app.db) return;
-
-  /* 임원을 공식 역할로 취급해 정규화 과정에서 반원으로 되돌아가지 않게 합니다. */
-  const EXEC='임원';
-  const originalNormalize = app.auth.normalizeUsers ? app.auth.normalizeUsers.bind(app.auth) : null;
-  if (originalNormalize && !app.auth.__executivePersistenceFinalV2) {
-    app.auth.__executivePersistenceFinalV2=true;
-    app.auth.normalizeUsers=function(items){
-      const before=Array.isArray(items)?items:[];
-      const executiveIds=new Set(before.filter(u=>u && String(u.role||'')===EXEC).map(u=>String(u.id||'')));
-      const rows=originalNormalize(before) || before;
-      let changed=false;
-      rows.forEach(u=>{
-        if(!u) return;
-        if(executiveIds.has(String(u.id||'')) && u.role!==EXEC){
-          u.role=EXEC; changed=true;
-        }
-      });
-      if(changed) { try{ app.db.saveUsers(rows); }catch(_){} }
-      return rows;
-    };
-  }
-
-  /* 권한 저장 로직의 마지막 방어선: 임원 선택값을 직접 저장합니다. */
-  window.safetyRole = window.safetyRole || {};
-  window.safetyRole.saveUser = function(id){
-    const current=app.auth.currentUser||{};
-    if(current.id!=='admin') return alert('권한 설정은 전체 관리자(admin)만 변경할 수 있습니다.');
-    const rows=app.auth.normalizeUsers(app.db.getUsers());
-    const target=rows.find(u=>u && String(u.id)===String(id));
-    if(!target) return alert('사용자 정보를 찾을 수 없습니다.');
-    const teamField=document.getElementById('spr-team-'+id);
-    const roleField=document.getElementById('spr-role-'+id);
-    const team=teamField?.value || target.team || '미지정';
-    const role=roleField?.value || target.role || '반원';
-    target.team=team;
-    target.teamManuallyAssigned=true;
-    if(String(id)!=='admin') target.role=role || '반원';
-    else target.role='HSE';
-    app.db.saveUsers(rows);
-    if(String(current.id)===String(id)) app.auth.currentUser=target;
-    try{
-      const fresh=app.db.getUsers().find(u=>String(u?.id)===String(id));
-      if(fresh && String(role)==='임원') fresh.role='임원';
-      if(fresh && String(role)==='임원') app.db.saveUsers(app.db.getUsers().map(u=>String(u?.id)===String(id)?fresh:u));
-    }catch(_){}
-    try{ app.auth.currentUser = app.db.getUsers().find(u=>String(u?.id)===String(current.id)) || app.auth.currentUser; }catch(_){}
-    document.getElementById('user-role')?.replaceChildren(document.createTextNode(String(app.auth.currentUser?.role || target.role || '반원')));
-    document.getElementById('user-info')?.replaceChildren(document.createTextNode(`${app.auth.currentUser?.name || target.name || target.id} (${app.auth.currentUser?.team || target.team || '미지정'})`));
-    /* 저장 직후 선택값을 유지 */
-    if(roleField && role) roleField.value=role;
-    alert(`${target.name || target.id} 계정의 소속 팀과 역할이 저장되었습니다.`);
+      const v = JSON.parse(localStorage.getItem(LOCAL_KEY) || "[]");
+      return Array.isArray(v) ? v : [];
+    } catch (_) { return []; }
   };
+  const writeLocal = rows => {
+    try { localStorage.setItem(LOCAL_KEY, JSON.stringify(Array.isArray(rows) ? rows : [])); } catch (e) { console.warn("localStorage 저장 실패", e); }
+  };
+  const sig = rows => { try { return JSON.stringify(rows); } catch (_) { return String(Date.now()); } };
 
-  function restoreExecutiveSelects(){
-    try{
-      const rows=app.db.getUsers();
-      document.querySelectorAll('select[id^="spr-role-"]').forEach(sel=>{
-        const id=sel.id.slice('spr-role-'.length);
-        const u=rows.find(x=>String(x?.id)===String(id));
-        if(!u) return;
-        if(String(u.role)==='임원'){
-          if(!Array.from(sel.options).some(o=>o.value===EXEC)){
-            const opt=document.createElement('option'); opt.value=EXEC; opt.textContent=EXEC; sel.appendChild(opt);
-          }
-          sel.value=EXEC;
-        }
-      });
-    }catch(_){ }
+  function cloudSafe(row) {
+    const x = { ...(row || {}) };
+    // Firestore 문서 1MiB 제한을 고려해 사진은 필요시 단계적으로 축소/제거
+    const size = () => { try { return JSON.stringify(x).length; } catch (_) { return 9999999; } };
+    if (size() > 850000) x.improvementPhotoDataUrl = "";
+    if (size() > 850000) x.photoDataUrl = "";
+    return x;
   }
-  setTimeout(restoreExecutiveSelects,0);
-  setTimeout(restoreExecutiveSelects,150);
-  setTimeout(restoreExecutiveSelects,500);
-  setTimeout(restoreExecutiveSelects,1200);
-  window.addEventListener('load',restoreExecutiveSelects);
+
+  function normalizeCloud(snap) {
+    return snap.docs.map(d => {
+      const data = d.data() || {};
+      const { _syncVersion, _updatedAt, _updatedByUid, _updatedById, ...row } = data;
+      return { id: String(row.id ?? d.id), ...row };
+    });
+  }
+
+  async function readCloud() {
+    const snap = await getDocs(collection(window.gnpFirebase.db, COLLECTION));
+    return normalizeCloud(snap);
+  }
+
+  async function pushRows(rows) {
+    if (!window.gnpFirebase?.db || !window.gnpFirebase?.auth?.currentUser) return;
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) return;
+    syncing = true;
+    try {
+      for (const row of list) {
+        if (!row || row.id == null) continue;
+        const id = String(row.id);
+        await setDoc(doc(window.gnpFirebase.db, COLLECTION, id), {
+          ...cloudSafe(row),
+          id,
+          _syncVersion: 3,
+          _updatedAt: serverTimestamp(),
+          _updatedByUid: window.gnpFirebase.auth.currentUser.uid,
+          _updatedById: String(app?.auth?.currentUser?.id || "")
+        }, { merge: true });
+      }
+    } finally { syncing = false; }
+  }
+
+  async function initialMerge() {
+    const local = readLocal();
+    const cloud = await readCloud();
+    const map = new Map();
+    cloud.forEach(r => map.set(String(r.id), r));
+    // 로컬에만 있는 기존 PC/모바일 자료는 클라우드에 추가
+    const localOnly = [];
+    local.forEach(r => {
+      if (!r || r.id == null) return;
+      const id = String(r.id);
+      if (!map.has(id)) { map.set(id, r); localOnly.push(r); }
+    });
+    const merged = Array.from(map.values());
+    cloudRows = merged;
+    writeLocal(merged);
+    if (localOnly.length) await pushRows(localOnly);
+    lastCloudSignature = sig(merged);
+    refreshAll();
+  }
+
+  function startSnapshot() {
+    if (unsubscribe || !window.gnpFirebase?.db) return;
+    unsubscribe = onSnapshot(collection(window.gnpFirebase.db, COLLECTION), snap => {
+      const incoming = normalizeCloud(snap);
+      const incomingSig = sig(incoming);
+      if (incomingSig === lastCloudSignature) return;
+      cloudRows = incoming;
+      lastCloudSignature = incomingSig;
+      writeLocal(incoming);
+      refreshAll();
+    }, err => {
+      console.error("안전제안 Firebase 실시간 동기화 오류", err);
+      window.dispatchEvent(new CustomEvent("gnp-safety-sync-error", { detail: err }));
+    });
+  }
+
+  function stopSnapshot() {
+    if (unsubscribe) { try { unsubscribe(); } catch (_) {} unsubscribe = null; }
+    cloudRows = null;
+    lastCloudSignature = "";
+  }
+
+  function refreshAll() {
+    try { app?.ai1?.render?.(); } catch (_) {}
+    try { window.safetyProposalUI?.refresh?.(); } catch (_) {}
+    try { window.refreshDashboard?.(); } catch (_) {}
+    document.dispatchEvent(new CustomEvent("gnp-safety-proposals-updated", { detail: { count: cloudRows?.length || 0 } }));
+  }
+
+  function install() {
+    if (installed || !window.app?.ai1) return;
+    installed = true;
+    const originalGet = app.ai1.getData.bind(app.ai1);
+    const originalSave = app.ai1.saveData.bind(app.ai1);
+
+    app.ai1.getData = function() {
+      return Array.isArray(cloudRows) ? cloudRows.slice() : originalGet();
+    };
+
+    app.ai1.saveData = function(data) {
+      const rows = Array.isArray(data) ? data.slice() : [];
+      cloudRows = rows;
+      writeLocal(rows);
+      const result = originalSave(rows);
+      clearTimeout(syncTimer);
+      syncTimer = setTimeout(async () => {
+        try {
+          await pushRows(rows);
+          const fresh = await readCloud();
+          cloudRows = fresh;
+          writeLocal(fresh);
+          lastCloudSignature = sig(fresh);
+          refreshAll();
+        } catch (e) {
+          console.error("안전제안 저장 Firebase 동기화 실패", e);
+          alert("안전제안은 이 기기에 저장되었지만 Firebase 동기화에 실패했습니다. Firebase Firestore Rules의 safetyProposals 읽기/쓰기 권한을 확인해 주세요.\n\n오류: " + (e?.code || e?.message || e));
+        }
+      }, 50);
+      refreshAll();
+      return result;
+    };
+
+    window.addEventListener("gnp-safety-proposals-force-refresh", async () => {
+      if (!window.gnpFirebase?.auth?.currentUser) return;
+      try { cloudRows = await readCloud(); writeLocal(cloudRows); lastCloudSignature = sig(cloudRows); refreshAll(); } catch (_) {}
+    });
+  }
+
+  async function boot() {
+    if (!window.gnpFirebase?.db || !window.gnpFirebase?.auth) { setTimeout(boot, 300); return; }
+    install();
+    onAuthStateChanged(window.gnpFirebase.auth, async user => {
+      stopSnapshot();
+      if (!user) return;
+      try {
+        await initialMerge();
+        startSnapshot();
+      } catch (e) {
+        console.error("안전제안 최초 Firebase 동기화 실패", e);
+        alert("Firebase에서 안전제안 데이터를 불러오지 못했습니다. Firestore Rules의 safetyProposals 컬렉션 읽기 권한을 확인해 주세요.\n\n오류: " + (e?.code || e?.message || e));
+      }
+    });
+  }
+  boot();
+</script>
+
+<script id="final-login-enter-repair-v3">
+(function(){
+  function bind(){
+    const id = document.getElementById('login-id');
+    const pw = document.getElementById('login-pw');
+    if(!id || !pw) return;
+    [id,pw].forEach(input=>{
+      if(input.dataset.finalEnterBound==='1') return;
+      input.dataset.finalEnterBound='1';
+      input.addEventListener('keydown', function(e){
+        if(e.key !== 'Enter') return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if(typeof app?.auth?.login==='function') {
+          Promise.resolve(app.auth.login()).catch(err=>console.error('Enter 로그인 오류',err));
+        }
+      }, true);
+    });
+  }
+  bind();
+  document.addEventListener('DOMContentLoaded', bind, {once:true});
+  setTimeout(bind,300); setTimeout(bind,1000); setTimeout(bind,2000);
 })();
 </script>
+</body>
+\n<script type="module" id="gnp-final-sync-and-role-repair">\nimport { collection, doc, getDocs, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";\n\n(function(){\n  const wait=()=>{ if(window.window.gnpFirebase?.db && window.window.gnpFirebase?.auth && window.app?.ai1 && window.app?.db && window.app?.auth) boot(); else setTimeout(wait,250); };\n  let started=false, unsub=null, queue=Promise.resolve(), cloud=[];\n  const P='safetyProposals', U='users', LK='gnp_ai1_proposals';\n  const clone=x=>Array.isArray(x)?JSON.parse(JSON.stringify(x)):[];\n  const id=x=>String(x?.id??'');\n  const local=()=>{try{const x=JSON.parse(localStorage.getItem(LK)||'[]');return Array.isArray(x)?x:[]}catch(_){return[]}};\n  const saveLocal=x=>{try{localStorage.setItem(LK,JSON.stringify(x||[]))}catch(_){}};\n  const merge=(a,b)=>{const m=new Map();for(const x of (a||[]))if(id(x))m.set(id(x),x);for(const x of (b||[]))if(id(x))m.set(id(x),x);return [...m.values()]};\n  const clean=x=>{const y={...(x||{})}; try{if(JSON.stringify(y).length>850000)y.improvementPhotoDataUrl='';if(JSON.stringify(y).length>850000)y.photoDataUrl=''}catch(_){} return y};\n  const readCloud=async()=>{const s=await getDocs(collection(window.gnpFirebase.db,P));return s.docs.map(d=>{const x=d.data()||{};delete x._syncAt;delete x._syncUid;return {id:String(x.id??d.id),...x}})};\n  const writeRows=rows=>{\n    const list=clone(rows);\n    queue=queue.then(async()=>{\n      const fresh=await readCloud();\n      const merged=merge(fresh,list);\n      for(const r of merged){if(!id(r))continue;await setDoc(doc(window.gnpFirebase.db,P,id(r)),{...clean(r),id:id(r),_syncAt:serverTimestamp(),_syncUid:window.gnpFirebase.auth.currentUser?.uid||''},{merge:true})}\n      cloud=merged;saveLocal(merged);try{window.app.ai1.render()}catch(_){};try{window.safetyProposalUI?.refresh?.()}catch(_){};try{window.refreshDashboard?.()}catch(_){}\n    }).catch(e=>console.error('FINAL safety sync failed',e));\n    return queue;\n  };\n  async function syncUsersToCloud(rows){\n    if(!window.gnpFirebase?.db)return;\n    const snap=await getDocs(collection(window.gnpFirebase.db,U));\n    const byLegacy=new Map();\n    snap.docs.forEach(d=>{const x=d.data()||{};if(x.legacyId!=null)byLegacy.set(String(x.legacyId),d.ref)});\n    for(const u of (rows||[])){if(!u?.id||u.id==='admin')continue;const ref=byLegacy.get(String(u.id));if(!ref)continue;const role=String(u.role||'반원');await setDoc(ref,{legacyId:String(u.id),name:String(u.name||u.id),team:String(u.team||'미지정'),role,active:u.active!==false,modules:Array.isArray(u.modules)?u.modules:[],updatedAt:serverTimestamp()},{merge:true})}\n  }\n  function roleNormalize(rows){\n    const valid=new Set(['반원','반장','팀장','HSE','임원','과장','대리','부장','사원','조장','차장','파트장']);\n    return (Array.isArray(rows)?rows:[]).map(u=>{const x={...(u||{})}; if(x.id==='admin')x.role='HSE'; else if(!valid.has(String(x.role||'')))x.role='반원'; return x});\n  }\n  function boot(){\n    if(started)return; started=true;\n    // 마지막 getUsers/saveUsers 패치: 임원을 절대로 반원으로 정규화하지 않음.\n    const rawGet=window.app.db.getUsers.bind(window.app.db), rawSave=window.app.db.saveUsers.bind(window.app.db);\n    window.app.db.getUsers=function(){return roleNormalize(rawGet())};\n    window.app.db.saveUsers=function(rows){const fixed=roleNormalize(rows);const r=rawSave(fixed);syncUsersToCloud(fixed).catch(e=>console.warn('role cloud sync failed',e));return r};\n    if(window.app.auth){\n      const oldNorm=window.app.auth.normalizeUsers;\n      if(typeof oldNorm==='function' && !window.app.auth.__finalExecutiveRepair){\n        window.app.auth.__finalExecutiveRepair=true;\n        window.app.auth.normalizeUsers=function(rows){\n          const before=new Map((Array.isArray(rows)?rows:[]).map(u=>[String(u?.id),String(u?.role||'')]));\n          const out=oldNorm.call(window.app.auth,rows)||rows;\n          return (Array.isArray(out)?out:[]).map(u=>{const x={...(u||{})};const prior=before.get(String(x.id));if(prior==='임원')x.role='임원';if(x.id==='admin')x.role='HSE';return x});\n        };\n      }\n    }\n    // 안전제안 API를 마지막으로 다시 연결. 저장 시 항상 현재 Firebase를 먼저 읽고 병합하므로 기기별 localStorage가 서로를 덮지 않음.\n    const rawGetP=window.app.ai1.getData.bind(window.app.ai1), rawSaveP=window.app.ai1.saveData.bind(window.app.ai1);\n    window.app.ai1.getData=function(){return cloud.length?clone(cloud):rawGetP()};\n    window.app.ai1.saveData=function(rows){const next=clone(rows);cloud=merge(cloud,next);saveLocal(cloud);try{rawSaveP(cloud)}catch(_){};writeRows(next);try{window.app.ai1.render()}catch(_){};return true};\n    onSnapshot(collection(window.gnpFirebase.db,P),snap=>{\n      const incoming=snap.docs.map(d=>{const x=d.data()||{};delete x._syncAt;delete x._syncUid;return {id:String(x.id??d.id),...x}});\n      const current=local();\n      const merged=merge(incoming,current.filter(r=>!incoming.some(c=>id(c)===id(r))));\n      cloud=incoming.length?incoming:merged;\n      saveLocal(cloud);\n      try{window.app.ai1.render()}catch(_){};try{window.safetyProposalUI?.refresh?.()}catch(_){};try{window.refreshDashboard?.()}catch(_){}\n      // 현재 기기에만 존재하는 제안은 즉시 Firebase로 업로드\n      const missing=current.filter(r=>id(r)&&!incoming.some(c=>id(c)===id(r)));\n      if(missing.length)writeRows(missing);\n    },e=>console.error('safetyProposals realtime error',e));\n    // 로그인한 사용자의 로컬 권한을 cloud profile과도 동기화.\n    try{syncUsersToCloud(window.app.db.getUsers())}catch(_){}\n  }\n  wait();\n})();\n</script>\n
+</html>
