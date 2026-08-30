@@ -12707,7 +12707,9 @@ const app = {
   const PART_LEADER='이정숙', FINAL_LEADER='박신환';
 
   function canonicalRole(u){
-    const id=String(u?.id||'');
+    const id=String(u?.id||'').trim();
+    // 지정 임원 4명은 어떤 기존 역할값이 들어와도 항상 임원으로 유지합니다.
+    if(['양영훈','채일식','박경원','공동화'].includes(id)) return '임원';
     if(id==='admin' || HSE_IDS.has(id) || ['MASTER','ADMIN'].includes(String(u?.role||''))) return 'HSE';
     if(id===PART_LEADER) return '파트장';
     if(id===FINAL_LEADER) return '팀장';
@@ -14438,6 +14440,82 @@ const app = {
 }
 </style>
 
+
+<script id="ABSOLUTE-EXECUTIVE-4-FINAL">
+(function(){
+  'use strict';
+  const EXEC = new Set(['양영훈','채일식','박경원','공동화']);
+  const isExec = u => !!u && EXEC.has(String(u.id || u.name || '').trim());
+  const forceRows = rows => {
+    const arr = Array.isArray(rows) ? rows : [];
+    let changed = false;
+    arr.forEach(u => {
+      if (isExec(u) && u.role !== '임원') { u.role = '임원'; changed = true; }
+    });
+    return {arr, changed};
+  };
+  function boot(){
+    const app = window.app;
+    if(!app || !app.db || !app.auth) return false;
+
+    if(!app.db.__exec4Final){
+      const rawGet = app.db.getUsers.bind(app.db);
+      const rawSave = app.db.saveUsers.bind(app.db);
+      app.db.getUsers = function(){
+        const result = forceRows(rawGet());
+        if(result.changed) rawSave(result.arr);
+        const me = app.auth.currentUser;
+        if(isExec(me)) me.role = '임원';
+        return result.arr;
+      };
+      app.db.saveUsers = function(rows){
+        const result = forceRows(rows);
+        const out = rawSave(result.arr);
+        const me = app.auth.currentUser;
+        if(isExec(me)) me.role = '임원';
+        return out;
+      };
+      app.db.__exec4Final = true;
+    }
+
+    if(app.auth.normalizeUsers && !app.auth.normalizeUsers.__exec4Final){
+      const oldNormalize = app.auth.normalizeUsers.bind(app.auth);
+      const wrapped = function(items){
+        const rows = oldNormalize(items) || [];
+        const result = forceRows(rows);
+        if(result.changed) app.db.saveUsers(result.arr);
+        return result.arr;
+      };
+      wrapped.__exec4Final = true;
+      app.auth.normalizeUsers = wrapped;
+    }
+
+    const rows = app.db.getUsers();
+    const me = app.auth.currentUser;
+    if(me && isExec(me)){
+      me.role = '임원';
+      const fresh = rows.find(u => String(u?.id || u?.name || '').trim() === String(me.id || me.name || '').trim());
+      if(fresh){ fresh.role = '임원'; app.auth.currentUser = fresh; }
+    }
+
+    const roleNode = document.getElementById('user-role');
+    const infoNode = document.getElementById('user-info');
+    if(app.auth.currentUser && isExec(app.auth.currentUser)){
+      if(roleNode) roleNode.textContent = '임원';
+      if(infoNode) infoNode.textContent = `${app.auth.currentUser.name || app.auth.currentUser.id} (${app.auth.currentUser.team || '미지정'})`;
+    }
+    document.querySelectorAll('select[id^="spr-role-"]').forEach(sel => {
+      const id = sel.id.slice('spr-role-'.length);
+      if(EXEC.has(id)) sel.value = '임원';
+    });
+    return true;
+  }
+  let tries = 0;
+  const timer = setInterval(() => { if(boot() || ++tries > 240) clearInterval(timer); }, 250);
+  document.addEventListener('visibilitychange', () => { if(!document.hidden) boot(); });
+  document.addEventListener('click', () => setTimeout(boot, 50), true);
+})();
+</script>
 </body>
 
 <!-- FINAL DATA SYNC ONLY: preserve latest UI, synchronize proposals through Firebase -->
