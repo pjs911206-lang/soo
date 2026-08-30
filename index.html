@@ -10512,7 +10512,7 @@ const app = {
   if(typeof app==='undefined' || !app.ai1 || !app.auth) return;
 
   const ROLE = { MEMBER:'반원', FOREMAN:'반장', LEADER:'팀장', HSE:'HSE' };
-  const roleValues = [ROLE.MEMBER, ROLE.FOREMAN, ROLE.LEADER, ROLE.HSE, '임원'];
+  const roleValues = [ROLE.MEMBER, ROLE.FOREMAN, ROLE.LEADER, ROLE.HSE];
   const scoreDefs = [
     {key:'risk', label:'안전 Risk 개선', max:3, desc:'위험요인 제거 및 안전성 향상 수준'},
     {key:'feasibility', label:'실현 가능성', max:3, desc:'현장 적용 가능성 및 실행 난이도'},
@@ -10803,7 +10803,7 @@ const app = {
 (function () {
   if (typeof app === 'undefined' || !app.auth || !app.db) return;
 
-  const VALID_ROLES = ['반원','반장','팀장','HSE','과장','대리','부장','사원','임원','조장','차장','파트장'];
+  const VALID_ROLES = ['반원','반장','팀장','HSE'];
   const legacyNormalize = app.auth.normalizeUsers;
 
   /* 기존 정규화 함수가 반장·팀장·HSE를 USER로 되돌리면서
@@ -14309,45 +14309,135 @@ const app = {
 
 
 <!-- MOBILE CAMERA BUTTON RESTORE ONLY -->
-<!-- FINAL MOBILE PHOTO BUTTON LAYOUT ONLY -->
-<style id="gnp-final-mobile-photo-layout">
+<style id="gnp-mobile-camera-restore-style">
 @media (max-width: 768px) {
-  #ai1-files { position:absolute !important; width:1px !important; height:1px !important; opacity:0 !important; overflow:hidden !important; pointer-events:none !important; }
-  #ai1-photo-edit-btn { display:none !important; }
-  #ai1-mobile-photo-actions-final { display:grid !important; grid-template-columns:repeat(3,minmax(0,1fr)) !important; gap:6px !important; width:100% !important; margin-top:8px !important; }
-  #ai1-mobile-photo-actions-final > button { width:100% !important; min-width:0 !important; height:42px !important; min-height:42px !important; padding:0 4px !important; margin:0 !important; border-radius:10px !important; font-size:11.5px !important; line-height:1 !important; font-weight:800 !important; white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important; box-sizing:border-box !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; }
-  #ai1-mobile-photo-actions-final i { margin-right:4px !important; font-size:12px !important; flex:0 0 auto !important; }
-}
-@media (max-width:360px) {
-  #ai1-mobile-photo-actions-final { gap:4px !important; }
-  #ai1-mobile-photo-actions-final > button { font-size:10.5px !important; padding:0 2px !important; }
-  #ai1-mobile-photo-actions-final i { margin-right:3px !important; font-size:11px !important; }
+  #ai1-mobile-photo-actions {
+    display:grid !important;
+    grid-template-columns:1fr 1fr !important;
+    gap:8px !important;
+    width:100% !important;
+    margin-top:8px !important;
+  }
+  #ai1-mobile-photo-actions > button {
+    min-height:44px !important;
+    width:100% !important;
+    border-radius:12px !important;
+    font-weight:800 !important;
+    white-space:nowrap !important;
+  }
+  #ai1-files {
+    min-height:44px !important;
+    width:100% !important;
+  }
 }
 </style>
-<script id="gnp-final-mobile-photo-layout-script">
+<script id="gnp-mobile-camera-restore-script">
 (function(){
-  function setup(){
-    if(window.innerWidth>768) return;
+  function restore(){
+    if (window.innerWidth > 768) return;
     const input=document.getElementById('ai1-files');
-    const preview=document.getElementById('ai1-preview');
-    if(!input || !preview) return;
-    let wrap=document.getElementById('ai1-mobile-photo-actions-final');
+    if(!input) return;
+
+    let wrap=document.getElementById('ai1-mobile-photo-actions');
     if(!wrap){
       wrap=document.createElement('div');
-      wrap.id='ai1-mobile-photo-actions-final';
-      wrap.innerHTML='<button type="button" id="ai1-mobile-attach-final" class="bg-slate-100 text-slate-800 border border-slate-300"><i class="fas fa-paperclip"></i>첨부하기</button><button type="button" id="ai1-mobile-camera-final" class="bg-sky-700 text-white"><i class="fas fa-camera"></i>사진찍기</button><button type="button" id="ai1-mobile-edit-final" class="bg-blue-50 text-blue-700 border border-blue-200"><i class="fas fa-pen-ruler"></i>사진편집하기</button>';
-      preview.insertAdjacentElement('afterend',wrap);
-      document.getElementById('ai1-mobile-attach-final').onclick=function(){input.removeAttribute('capture');input.click();};
-      document.getElementById('ai1-mobile-camera-final').onclick=function(){input.setAttribute('capture','environment');input.click();};
-      document.getElementById('ai1-mobile-edit-final').onclick=function(){const old=document.getElementById('ai1-photo-edit-btn');if(old) old.click();};
-      input.addEventListener('change',function(){input.removeAttribute('capture');});
+      wrap.id='ai1-mobile-photo-actions';
+      wrap.innerHTML=
+        '<button type="button" id="ai1-mobile-gallery-btn" class="bg-slate-100 text-slate-800 border border-slate-300"><i class="fas fa-images mr-2"></i>사진첩에서 선택</button>'+
+        '<button type="button" id="ai1-mobile-camera-btn" class="bg-sky-700 text-white"><i class="fas fa-camera mr-2"></i>사진 찍기</button>';
+      input.parentNode.insertBefore(wrap,input.nextSibling);
+
+      const gallery=document.getElementById('ai1-mobile-gallery-btn');
+      const camera=document.getElementById('ai1-mobile-camera-btn');
+
+      gallery.onclick=function(){
+        input.removeAttribute('capture');
+        input.click();
+      };
+
+      camera.onclick=function(){
+        input.setAttribute('capture','environment');
+        input.click();
+      };
+
+      input.addEventListener('change',function(){
+        // 다음 파일 선택은 기본적으로 사진첩 선택으로 유지
+        input.removeAttribute('capture');
+      });
     }
+    wrap.classList.remove('hidden');
     wrap.style.display='grid';
   }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',setup); else setup();
-  window.addEventListener('load',setup);setTimeout(setup,300);setTimeout(setup,1000);
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',restore);
+  }else restore();
+  window.addEventListener('load',restore);
+  setTimeout(restore,300);
+  setTimeout(restore,1000);
 })();
 </script>
+
+
+<style id="gnp-mobile-photo-buttons-size-only">
+@media (max-width: 768px) {
+  #ai1-mobile-photo-actions {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+    width: 100% !important;
+    margin-top: 8px !important;
+  }
+
+  #ai1-mobile-photo-actions > button {
+    flex: 1 1 0 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: 42px !important;
+    min-height: 42px !important;
+    padding: 0 8px !important;
+    margin: 0 !important;
+    border-radius: 10px !important;
+    font-size: 13px !important;
+    line-height: 1 !important;
+    font-weight: 700 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    box-sizing: border-box !important;
+  }
+
+  #ai1-mobile-photo-actions > button i {
+    margin-right: 5px !important;
+    font-size: 13px !important;
+  }
+
+  #ai1-files {
+    width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+}
+
+@media (max-width: 390px) {
+  #ai1-mobile-photo-actions {
+    gap: 6px !important;
+  }
+  #ai1-mobile-photo-actions > button {
+    height: 40px !important;
+    min-height: 40px !important;
+    padding: 0 5px !important;
+    font-size: 12px !important;
+  }
+  #ai1-mobile-photo-actions > button i {
+    margin-right: 3px !important;
+    font-size: 12px !important;
+  }
+}
+</style>
+
 </body>
 
 <!-- FINAL DATA SYNC ONLY: preserve latest UI, synchronize proposals through Firebase -->
@@ -14456,10 +14546,147 @@ import { collection, getDocs, setDoc, doc, serverTimestamp } from "https://www.g
 })();
 </script>
 
-<style id="gnp-mobile-executive-permission-only">
-@media (max-width: 768px) {
-  #view-PERM-V3 .overflow-x-auto { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
-  #view-PERM-V3 select[id^="spr-role-"] { min-width: 82px !important; }
-}
-</style>
+
+
+<!-- FINAL FIX: 지정 임원 4명 역할 강제 저장/유지 -->
+<script type="module" id="fixed-executive-four-role">
+import { collection, getDocs, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+
+(function(){
+  const EXECUTIVES = new Set(["양영훈","채일식","박경원","공동화"]);
+  const VALID = ["반원","반장","팀장","HSE","과장","대리","부장","사원","조장","차장","파트장","임원"];
+  const wait = (fn) => new Promise(resolve => {
+    let n = 0;
+    const tick = () => {
+      try { if (fn()) return resolve(true); } catch(e) {}
+      if (++n > 120) return resolve(false);
+      setTimeout(tick, 150);
+    };
+    tick();
+  });
+
+  function forceLocalExecutives(){
+    const app = window.app;
+    if (!app?.db?.getUsers || !app?.db?.saveUsers) return false;
+    const rows = app.db.getUsers() || [];
+    let changed = false;
+    rows.forEach(u => {
+      if (!u || !EXECUTIVES.has(String(u.id || u.name || ""))) return;
+      if (u.role !== "임원") { u.role = "임원"; changed = true; }
+    });
+    if (changed) app.db.saveUsers(rows);
+    return true;
+  }
+
+  async function forceCloudExecutives(){
+    const app = window.app;
+    const db = window.gnpFirebase?.db;
+    if (!db || !app?.db?.getUsers) return;
+    const rows = app.db.getUsers() || [];
+    const snap = await getDocs(collection(db, "users"));
+    const byLegacy = new Map(snap.docs.map(d => [String(d.data()?.legacyId || d.data()?.id || d.id || ""), d]));
+
+    for (const name of EXECUTIVES) {
+      const local = rows.find(u => String(u?.id || u?.name || "") === name);
+      const docSnap = byLegacy.get(name);
+      if (!docSnap) continue;
+      await setDoc(docSnap.ref, {
+        legacyId: name,
+        id: name,
+        name: local?.name || name,
+        team: local?.team || String(docSnap.data()?.team || "미지정"),
+        role: "임원",
+        active: local?.active !== false,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    }
+  }
+
+  function patchNormalize(){
+    const app = window.app;
+    if (!app?.auth?.normalizeUsers) return false;
+    const previous = app.auth.normalizeUsers;
+    if (previous.__fixedExecutiveFour) return true;
+
+    const fixed = function(items){
+      const rows = previous.call(this, items) || [];
+      let changed = false;
+      rows.forEach(u => {
+        if (!u) return;
+        if (EXECUTIVES.has(String(u.id || u.name || "")) && u.role !== "임원") {
+          u.role = "임원";
+          changed = true;
+        }
+      });
+      if (changed && app.db?.saveUsers) app.db.saveUsers(rows);
+      return rows;
+    };
+    fixed.__fixedExecutiveFour = true;
+    app.auth.normalizeUsers = fixed;
+    return true;
+  }
+
+  function patchRoleSelects(){
+    const app = window.app;
+    if (!app?.db?.getUsers) return;
+    const rows = app.db.getUsers() || [];
+    document.querySelectorAll('select[id^="spr-role-"]').forEach(select => {
+      const id = select.id.slice('spr-role-'.length);
+      if (!EXECUTIVES.has(id)) return;
+      const options = VALID.map(r => `<option value="${r}" ${r === "임원" ? "selected" : ""}>${r}</option>`).join("");
+      select.innerHTML = options;
+      select.value = "임원";
+      select.dataset.fixedExecutiveFour = "true";
+    });
+  }
+
+  function patchSaveButton(){
+    const app = window.app;
+    if (!app?.db?.saveUsers) return false;
+    window.safetyRole = window.safetyRole || {};
+    const oldSave = window.safetyRole.saveUser;
+    if (oldSave && oldSave.__fixedExecutiveFour) return true;
+
+    const save = function(id){
+      if (EXECUTIVES.has(String(id))) {
+        if (app.auth?.currentUser?.id !== "admin") {
+          return alert("권한 설정은 전체 관리자(admin)만 변경할 수 있습니다.");
+        }
+        const rows = app.db.getUsers() || [];
+        const target = rows.find(u => String(u?.id || "") === String(id));
+        if (!target) return alert("사용자 정보를 찾을 수 없습니다.");
+        target.role = "임원";
+        app.db.saveUsers(rows);
+        forceCloudExecutives().catch(console.warn);
+        if (app.auth.currentUser?.id === id) app.auth.currentUser = target;
+        try { if (typeof window.renderPermissionV3 === "function") window.renderPermissionV3(); } catch(e) {}
+        patchRoleSelects();
+        return alert("회원 권한을 저장했습니다. (임원)");
+      }
+      if (typeof oldSave === "function") return oldSave.apply(this, arguments);
+    };
+    save.__fixedExecutiveFour = true;
+    window.safetyRole.saveUser = save;
+    return true;
+  }
+
+  async function start(){
+    patchNormalize();
+    forceLocalExecutives();
+    patchSaveButton();
+    patchRoleSelects();
+    try { await forceCloudExecutives(); } catch(e) { console.warn("지정 임원 Firebase 저장 실패", e); }
+    forceLocalExecutives();
+    patchRoleSelects();
+  }
+
+  wait(() => window.app?.auth?.normalizeUsers && window.app?.db?.getUsers && window.app?.db?.saveUsers)
+    .then(ok => { if (ok) start().catch(console.warn); });
+
+  new MutationObserver(() => {
+    try { patchNormalize(); forceLocalExecutives(); patchSaveButton(); patchRoleSelects(); } catch(e) {}
+  }).observe(document.body, {childList:true, subtree:true});
+})();
+</script>
+
 </html>
