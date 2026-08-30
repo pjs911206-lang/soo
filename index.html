@@ -14309,169 +14309,45 @@ const app = {
 
 
 <!-- MOBILE CAMERA BUTTON RESTORE ONLY -->
-<style id="gnp-mobile-camera-restore-style">
+<!-- FINAL MOBILE PHOTO BUTTON LAYOUT ONLY -->
+<style id="gnp-final-mobile-photo-layout">
 @media (max-width: 768px) {
-  #ai1-mobile-photo-actions {
-    display:grid !important;
-    grid-template-columns:1fr 1fr !important;
-    gap:8px !important;
-    width:100% !important;
-    margin-top:8px !important;
-  }
-  #ai1-mobile-photo-actions > button {
-    min-height:44px !important;
-    width:100% !important;
-    border-radius:12px !important;
-    font-weight:800 !important;
-    white-space:nowrap !important;
-  }
-  #ai1-files {
-    min-height:44px !important;
-    width:100% !important;
-  }
+  #ai1-files { position:absolute !important; width:1px !important; height:1px !important; opacity:0 !important; overflow:hidden !important; pointer-events:none !important; }
+  #ai1-photo-edit-btn { display:none !important; }
+  #ai1-mobile-photo-actions-final { display:grid !important; grid-template-columns:repeat(3,minmax(0,1fr)) !important; gap:6px !important; width:100% !important; margin-top:8px !important; }
+  #ai1-mobile-photo-actions-final > button { width:100% !important; min-width:0 !important; height:42px !important; min-height:42px !important; padding:0 4px !important; margin:0 !important; border-radius:10px !important; font-size:11.5px !important; line-height:1 !important; font-weight:800 !important; white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important; box-sizing:border-box !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; }
+  #ai1-mobile-photo-actions-final i { margin-right:4px !important; font-size:12px !important; flex:0 0 auto !important; }
 }
-  #ai1-photo-edit-btn {
-    display:block !important;
-    width:100% !important;
-    height:40px !important;
-    margin-top:9px !important;
-    margin-bottom:0 !important;
-    box-sizing:border-box !important;
-    text-align:center !important;
-  }
-  #ai1-mobile-photo-actions {
-    display:grid !important;
-    grid-template-columns:repeat(2,minmax(0,1fr)) !important;
-    grid-template-rows:repeat(2,44px) !important;
-    gap:8px !important;
-    width:100% !important;
-    margin-top:8px !important;
-  }
-  #ai1-mobile-photo-actions > button {
-    width:100% !important;
-    min-width:0 !important;
-    height:44px !important;
-    min-height:44px !important;
-    padding:0 8px !important;
-    margin:0 !important;
-    font-size:12.5px !important;
-    white-space:nowrap !important;
-  }
+@media (max-width:360px) {
+  #ai1-mobile-photo-actions-final { gap:4px !important; }
+  #ai1-mobile-photo-actions-final > button { font-size:10.5px !important; padding:0 2px !important; }
+  #ai1-mobile-photo-actions-final i { margin-right:3px !important; font-size:11px !important; }
+}
 </style>
-<script id="gnp-mobile-camera-restore-script">
+<script id="gnp-final-mobile-photo-layout-script">
 (function(){
-  function restore(){
-    if (window.innerWidth > 768) return;
+  function setup(){
+    if(window.innerWidth>768) return;
     const input=document.getElementById('ai1-files');
-    if(!input) return;
-
-    let wrap=document.getElementById('ai1-mobile-photo-actions');
+    const preview=document.getElementById('ai1-preview');
+    if(!input || !preview) return;
+    let wrap=document.getElementById('ai1-mobile-photo-actions-final');
     if(!wrap){
       wrap=document.createElement('div');
-      wrap.id='ai1-mobile-photo-actions';
-      wrap.innerHTML=
-        '<button type="button" id="ai1-mobile-gallery-btn" class="bg-slate-100 text-slate-800 border border-slate-300"><i class="fas fa-images mr-2"></i>불러오기</button>'+
-        '<button type="button" id="ai1-mobile-camera-btn" class="bg-sky-700 text-white"><i class="fas fa-camera mr-2"></i>사진 찍기</button>';
-      const editBtn=document.getElementById('ai1-photo-edit-btn');
-      if (editBtn && editBtn.parentNode) {
-        editBtn.insertAdjacentElement('afterend', wrap);
-      } else {
-        input.parentNode.insertBefore(wrap,input.nextSibling);
-      }
-
-      const gallery=document.getElementById('ai1-mobile-gallery-btn');
-      const camera=document.getElementById('ai1-mobile-camera-btn');
-
-      gallery.onclick=function(){
-        input.removeAttribute('capture');
-        input.click();
-      };
-
-      camera.onclick=function(){
-        input.setAttribute('capture','environment');
-        input.click();
-      };
-
-      input.addEventListener('change',function(){
-        // 다음 파일 선택은 기본적으로 사진첩 선택으로 유지
-        input.removeAttribute('capture');
-      });
+      wrap.id='ai1-mobile-photo-actions-final';
+      wrap.innerHTML='<button type="button" id="ai1-mobile-attach-final" class="bg-slate-100 text-slate-800 border border-slate-300"><i class="fas fa-paperclip"></i>첨부하기</button><button type="button" id="ai1-mobile-camera-final" class="bg-sky-700 text-white"><i class="fas fa-camera"></i>사진찍기</button><button type="button" id="ai1-mobile-edit-final" class="bg-blue-50 text-blue-700 border border-blue-200"><i class="fas fa-pen-ruler"></i>사진편집하기</button>';
+      preview.insertAdjacentElement('afterend',wrap);
+      document.getElementById('ai1-mobile-attach-final').onclick=function(){input.removeAttribute('capture');input.click();};
+      document.getElementById('ai1-mobile-camera-final').onclick=function(){input.setAttribute('capture','environment');input.click();};
+      document.getElementById('ai1-mobile-edit-final').onclick=function(){const old=document.getElementById('ai1-photo-edit-btn');if(old) old.click();};
+      input.addEventListener('change',function(){input.removeAttribute('capture');});
     }
-    const editBtn=document.getElementById('ai1-photo-edit-btn');
-    if (editBtn && editBtn.parentNode && wrap.previousElementSibling !== editBtn) {
-      editBtn.insertAdjacentElement('afterend', wrap);
-    }
-    wrap.classList.remove('hidden');
     wrap.style.display='grid';
   }
-
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded',restore);
-  }else restore();
-  window.addEventListener('load',restore);
-  setTimeout(restore,300);
-  setTimeout(restore,1000);
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',setup); else setup();
+  window.addEventListener('load',setup);setTimeout(setup,300);setTimeout(setup,1000);
 })();
 </script>
-
-
-<style id="gnp-mobile-photo-buttons-size-only">
-/* 모바일 안전제안 사진 버튼만 최적화: 기존 촬영/첨부 기능은 그대로 유지 */
-@media (max-width: 768px) {
-  #ai1-mobile-photo-actions {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
-    align-items: stretch !important;
-    gap: 8px !important;
-    width: 100% !important;
-    margin-top: 9px !important;
-  }
-  #ai1-mobile-photo-actions > button {
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    height: 44px !important;
-    min-height: 44px !important;
-    padding: 0 8px !important;
-    margin: 0 !important;
-    border-radius: 10px !important;
-    font-size: 12.5px !important;
-    line-height: 1 !important;
-    font-weight: 800 !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    box-sizing: border-box !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-  }
-  #ai1-mobile-photo-actions > button i {
-    flex: 0 0 auto !important;
-    margin-right: 5px !important;
-    font-size: 13px !important;
-  }
-  #ai1-files {
-    width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-  }
-}
-@media (max-width: 390px) {
-  #ai1-mobile-photo-actions { gap: 6px !important; }
-  #ai1-mobile-photo-actions > button {
-    height: 42px !important;
-    min-height: 42px !important;
-    padding: 0 5px !important;
-    font-size: 11.5px !important;
-  }
-  #ai1-mobile-photo-actions > button i {
-    margin-right: 3px !important;
-    font-size: 12px !important;
-  }
-}
-</style>
-
 </body>
 
 <!-- FINAL DATA SYNC ONLY: preserve latest UI, synchronize proposals through Firebase -->
