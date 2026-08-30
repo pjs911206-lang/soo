@@ -10512,7 +10512,7 @@ const app = {
   if(typeof app==='undefined' || !app.ai1 || !app.auth) return;
 
   const ROLE = { MEMBER:'반원', FOREMAN:'반장', LEADER:'팀장', HSE:'HSE' };
-  const roleValues = [ROLE.MEMBER, ROLE.FOREMAN, ROLE.LEADER, ROLE.HSE];
+  const roleValues = [ROLE.MEMBER, ROLE.FOREMAN, ROLE.LEADER, ROLE.HSE, '임원'];
   const scoreDefs = [
     {key:'risk', label:'안전 Risk 개선', max:3, desc:'위험요인 제거 및 안전성 향상 수준'},
     {key:'feasibility', label:'실현 가능성', max:3, desc:'현장 적용 가능성 및 실행 난이도'},
@@ -10803,7 +10803,7 @@ const app = {
 (function () {
   if (typeof app === 'undefined' || !app.auth || !app.db) return;
 
-  const VALID_ROLES = ['반원','반장','팀장','HSE'];
+  const VALID_ROLES = ['반원','반장','팀장','HSE','과장','대리','부장','사원','임원','조장','차장','파트장'];
   const legacyNormalize = app.auth.normalizeUsers;
 
   /* 기존 정규화 함수가 반장·팀장·HSE를 USER로 되돌리면서
@@ -14343,7 +14343,7 @@ const app = {
       wrap=document.createElement('div');
       wrap.id='ai1-mobile-photo-actions';
       wrap.innerHTML=
-        '<button type="button" id="ai1-mobile-gallery-btn" class="bg-slate-100 text-slate-800 border border-slate-300"><i class="fas fa-images mr-2"></i>사진첩에서 선택</button>'+
+        '<button type="button" id="ai1-mobile-gallery-btn" class="bg-slate-100 text-slate-800 border border-slate-300"><i class="fas fa-images mr-2"></i>사진첩에서 불러오기</button>'+
         '<button type="button" id="ai1-mobile-camera-btn" class="bg-sky-700 text-white"><i class="fas fa-camera mr-2"></i>사진 찍기</button>';
       input.parentNode.insertBefore(wrap,input.nextSibling);
 
@@ -14380,56 +14380,54 @@ const app = {
 
 
 <style id="gnp-mobile-photo-buttons-size-only">
+/* 모바일 안전제안 사진 버튼만 최적화: 기존 촬영/첨부 기능은 그대로 유지 */
 @media (max-width: 768px) {
   #ai1-mobile-photo-actions {
-    display: flex !important;
-    flex-direction: row !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
     align-items: stretch !important;
     gap: 8px !important;
     width: 100% !important;
-    margin-top: 8px !important;
+    margin-top: 9px !important;
   }
-
   #ai1-mobile-photo-actions > button {
-    flex: 1 1 0 !important;
-    width: auto !important;
+    width: 100% !important;
     min-width: 0 !important;
     max-width: none !important;
-    height: 42px !important;
-    min-height: 42px !important;
+    height: 44px !important;
+    min-height: 44px !important;
     padding: 0 8px !important;
     margin: 0 !important;
     border-radius: 10px !important;
-    font-size: 13px !important;
+    font-size: 12.5px !important;
     line-height: 1 !important;
-    font-weight: 700 !important;
+    font-weight: 800 !important;
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
     box-sizing: border-box !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
   }
-
   #ai1-mobile-photo-actions > button i {
+    flex: 0 0 auto !important;
     margin-right: 5px !important;
     font-size: 13px !important;
   }
-
   #ai1-files {
     width: 100% !important;
     min-width: 0 !important;
     box-sizing: border-box !important;
   }
 }
-
 @media (max-width: 390px) {
-  #ai1-mobile-photo-actions {
-    gap: 6px !important;
-  }
+  #ai1-mobile-photo-actions { gap: 6px !important; }
   #ai1-mobile-photo-actions > button {
-    height: 40px !important;
-    min-height: 40px !important;
+    height: 42px !important;
+    min-height: 42px !important;
     padding: 0 5px !important;
-    font-size: 12px !important;
+    font-size: 11.5px !important;
   }
   #ai1-mobile-photo-actions > button i {
     margin-right: 3px !important;
@@ -14546,4 +14544,10 @@ import { collection, getDocs, setDoc, doc, serverTimestamp } from "https://www.g
 })();
 </script>
 
+<style id="gnp-mobile-executive-permission-only">
+@media (max-width: 768px) {
+  #view-PERM-V3 .overflow-x-auto { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+  #view-PERM-V3 select[id^="spr-role-"] { min-width: 82px !important; }
+}
+</style>
 </html>
