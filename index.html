@@ -14932,16 +14932,18 @@ const app = {
 
 
 <!-- ============================================================
-     GNP PC MASTER / MOBILE REPLICA v21
-     IMPORTANT:
-     - Firestore is the only shared source.
-     - PC is the only writer for users/safetyProposals.
-     - Mobile reads the PC state; mobile new proposals go to inbox.
-     - This bridge does NOT alter the existing login UI.
+     GNP FORCE CLOUD SOURCE v22
+     PC = authoritative writer
+     Mobile = read-only replica
+     Mobile new proposal = inbox -> PC authoritative list
+     Firestore Rules are currently open until 2026-09-25, so this
+     bridge intentionally does not require Firebase Auth for data sync.
+     No UI/business logic is changed except the data transport layer.
      ============================================================ -->
-<script type="module" id="gnp-pc-master-mobile-replica-v21">
+<script type="module" id="gnp-force-cloud-source-v22">
 import {
   collection,
+  getDocs,
   doc,
   setDoc,
   deleteDoc,
@@ -14959,116 +14961,292 @@ import {
   const USER_KEY = 'gnp_users';
   const PROPOSAL_KEY = 'gnp_ai1_proposals';
 
-  const mobile = () =>
+  const isMobile = () =>
     /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
-    (window.innerWidth && window.innerWidth <= 768);
+    Number(window.innerWidth || 9999) <= 768;
 
   let installed = false;
-  let usersStop = null;
-  let proposalsStop = null;
-  let inboxStop = null;
+  let userListenerStop = null;
+  let proposalListenerStop = null;
+  let inboxListenerStop = null;
 
-  const queued = new Map();
+  const writeQueues = new Map();
 
-  const clone = value => {
-    try { return JSON.parse(JSON.stringify(value)); }
+  const clone = v => {
+    try { return JSON.parse(JSON.stringify(v)); }
     catch { return null; }
   };
 
-  const clean = value => {
-    const out = { ...(value || {}) };
+  const clean = obj => {
+    const out = { ...(obj || {}) };
     Object.keys(out).forEach(k => {
       if(out[k] === undefined) delete out[k];
     });
     return out;
   };
 
-  const uid = user => String(user?.id || user?.legacyId || user?.name || '').trim();
-  const pid = row => String(row?.id || '').trim();
+  const userId = u =>
+    String(u?.id || u?.legacyId || u?.name || '').trim();
 
-  const readUsers = () => {
+  const proposalId = p =>
+    String(p?.id || '').trim();
+
+  function readUsers(){
     try {
-      const x = JSON.parse(localStorage.getItem(USER_KEY) || '[]');
-      return Array.isArray(x) ? x : [];
-    } catch { return []; }
-  };
+      const rows = JSON.parse(localStorage.getItem(USER_KEY) || '[]');
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  }
 
-  const writeUsers = rows => {
+  function saveUsersLocal(rows){
     try { localStorage.setItem(USER_KEY, JSON.stringify(rows || [])); }
     catch(_) {}
-  };
+  }
 
-  const readProposals = () => {
+  function readProposals(){
     try {
-      const x = JSON.parse(localStorage.getItem(PROPOSAL_KEY) || '[]');
-      return Array.isArray(x) ? x : [];
-    } catch { return []; }
-  };
+      const rows = JSON.parse(localStorage.getItem(PROPOSAL_KEY) || '[]');
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  }
 
-  const writeProposals = rows => {
+  function saveProposalsLocal(rows){
     try { localStorage.setItem(PROPOSAL_KEY, JSON.stringify(rows || [])); }
     catch(_) {}
-  };
+  }
 
-  function enqueue(key, fn){
-    const old = queued.get(key) || Promise.resolve();
+  function queue(key, fn){
+    const prev = writeQueues.get(key) || Promise.resolve();
 
-    const next = old
+    const next = prev
       .catch(() => {})
       .then(fn)
       .finally(() => {
-        if(queued.get(key) === next) queued.delete(key);
+        if(writeQueues.get(key) === next) writeQueues.delete(key);
       });
 
-    queued.set(key, next);
+    writeQueues.set(key, next);
     return next;
   }
 
-  function currentFirebase(){
-    const gf = window.gnpFirebase;
-    return {
-      db: gf?.db || null,
-      auth: gf?.auth || null,
-      user: gf?.auth?.currentUser || null
-    };
+  async function cloud(){
+    const db = window.gnpFirebase?.db;
+    if(!db) throw new Error('Firebase Firestore가 초기화되지 않았습니다.');
+    return db;
   }
 
-  function notify(text){
-    console.info('[GNP v21]', text);
+  async function findUserDocId(db, legacyId){
+    const snap = await getDocs(collection(db, USER_COL));
 
-    const el = document.getElementById('firebase-v1-status');
-    if(el) el.textContent = text;
+    for(const item of snap.docs){
+      const data = item.data() || {};
+      const id = String(
+        data.legacyId || data.id || data.name || ''
+      ).trim();
+
+      if(id === String(legacyId)) return item.id;
+    }
+
+    return String(legacyId);
+  }
+
+  async function saveUserToCloud(user){
+    if(isMobile()) return false;
+
+    const db = await cloud();
+    const id = userId(user);
+    if(!id) return false;
+
+    return queue('user:' + id, async () => {
+      const firestoreId = await findUserDocId(db, id);
+
+      await setDoc(
+        doc(db, USER_COL, firestoreId),
+        {
+          ...clean(user),
+          id,
+          legacyId: id,
+          name: String(user.name || id),
+          team: String(user.team || ''),
+          role: String(user.role || '반원'),
+          modules: Array.isArray(user.modules) ? user.modules : [],
+          active: user.active !== false,
+          approvalPermission: !!user.approvalPermission,
+          approvalScope: String(user.approvalScope || 'TEAM'),
+          _masterSource: 'PC',
+          _syncUpdatedAt: serverTimestamp()
+        },
+        { merge:true }
+      );
+
+      console.log('[GNP v22] PC 권한 Firebase 저장:', id);
+      return true;
+    });
+  }
+
+  async function saveProposalToCloud(row){
+    if(isMobile()) return false;
+
+    const db = await cloud();
+    const id = proposalId(row);
+    if(!id) return false;
+
+    return queue('proposal:' + id, async () => {
+      await setDoc(
+        doc(db, PROPOSAL_COL, id),
+        {
+          ...clean(row),
+          id,
+          _masterSource: 'PC',
+          _syncUpdatedAt: serverTimestamp()
+        },
+        { merge:true }
+      );
+
+      console.log('[GNP v22] PC 안전제안 Firebase 저장:', id);
+      return true;
+    });
+  }
+
+  async function deleteProposalFromCloud(id){
+    if(isMobile()) return false;
+
+    const db = await cloud();
+    id = String(id || '').trim();
+    if(!id) return false;
+
+    return queue('proposal:' + id, async () => {
+      await deleteDoc(doc(db, PROPOSAL_COL, id));
+      console.log('[GNP v22] PC 안전제안 Firebase 삭제:', id);
+      return true;
+    });
+  }
+
+  async function submitMobileProposal(row){
+    if(!isMobile()) return false;
+
+    const db = await cloud();
+    const id = proposalId(row);
+    if(!id) return false;
+
+    return queue('inbox:' + id, async () => {
+      await setDoc(
+        doc(db, INBOX_COL, id),
+        {
+          ...clean(row),
+          id,
+          _masterSource: 'MOBILE_INBOX',
+          submittedAt: serverTimestamp()
+        },
+        { merge:true }
+      );
+
+      console.log('[GNP v22] 모바일 제안 접수함 등록:', id);
+      return true;
+    });
   }
 
   /*
-   * Shared users listener:
-   * every authenticated device gets the same PC-authoritative users collection.
+   * PC consumes mobile inbox and promotes it to the authoritative list.
    */
-  function startUsers(){
-    const {db,auth} = currentFirebase();
-    if(!db || !auth) return;
+  function startInbox(){
+    if(isMobile()) return;
 
-    if(usersStop){
-      try { usersStop(); } catch(_) {}
+    const db = window.gnpFirebase?.db;
+    if(!db) return;
+
+    if(inboxListenerStop){
+      try { inboxListenerStop(); } catch(_) {}
     }
 
-    usersStop = onSnapshot(
-      collection(db, USER_COL),
-      snap => {
-        const rows = snap.docs.map(d => ({
-          ...(d.data() || {}),
-          id: String(d.data()?.id || d.data()?.legacyId || d.id)
-        })).filter(u => uid(u));
+    inboxListenerStop = onSnapshot(
+      collection(db, INBOX_COL),
+      async snap => {
+        for(const item of snap.docs){
+          const row = {
+            ...(item.data() || {}),
+            id: String(item.data()?.id || item.id)
+          };
 
-        writeUsers(rows);
+          if(!proposalId(row)) continue;
+
+          try {
+            await setDoc(
+              doc(db, PROPOSAL_COL, proposalId(row)),
+              {
+                ...clean(row),
+                _masterSource: 'PC',
+                importedFrom: 'MOBILE',
+                importedAt: serverTimestamp()
+              },
+              { merge:true }
+            );
+
+            await deleteDoc(doc(db, INBOX_COL, item.id));
+
+            console.log('[GNP v22] 모바일 제안 → PC 원본 승격:', row.id);
+          } catch(error){
+            console.error('[GNP v22] mobile inbox promotion failed', error);
+          }
+        }
+      },
+      error => console.error('[GNP v22] inbox listener error', error)
+    );
+  }
+
+  /*
+   * Everyone reads the exact same Firestore users collection.
+   */
+  function startUsers(){
+    const db = window.gnpFirebase?.db;
+    if(!db) return;
+
+    if(userListenerStop){
+      try { userListenerStop(); } catch(_) {}
+    }
+
+    userListenerStop = onSnapshot(
+      collection(db, USER_COL),
+      snapshot => {
+        const cloudRows = snapshot.docs.map(s => ({
+          ...(s.data() || {}),
+          id: String(
+            s.data()?.legacyId ||
+            s.data()?.id ||
+            s.id
+          )
+        })).filter(u => userId(u));
 
         /*
-         * Force the current session's shared role/team to the PC value.
+         * Firestore is authoritative for shared fields.
+         * Keep local pw only where a local matching record exists.
          */
+        const localMap = new Map(
+          readUsers().map(u => [userId(u), u]).filter(([id]) => id)
+        );
+
+        const merged = cloudRows.map(c => {
+          const local = localMap.get(userId(c)) || {};
+          return {
+            ...local,
+            ...clean(c),
+            id: userId(c),
+            name: c.name || local.name || userId(c),
+            team: c.team || local.team || '',
+            role: c.role || local.role || '반원'
+          };
+        });
+
+        saveUsersLocal(merged);
+
         try {
           const current = window.app?.auth?.currentUser;
           if(current){
-            const latest = rows.find(u => uid(u) === uid(current));
+            const latest = merged.find(u => userId(u) === userId(current));
             if(latest){
               window.app.auth.currentUser = {
                 ...current,
@@ -15082,189 +15260,44 @@ import {
         try { window.permissionControl?.filter?.(); } catch(_) {}
         try { window.app?.auth?.refreshPanel?.(); } catch(_) {}
 
-        console.info('[GNP v21] users snapshot', rows.length);
+        console.log('[GNP v22] users replicated:', merged.length);
       },
-      error => {
-        console.error('[GNP v21] USERS LISTENER ERROR', error);
-        notify('Firebase 권한 데이터 동기화 오류: ' + (error?.code || error?.message || 'unknown'));
-      }
+      error => console.error('[GNP v22] users snapshot error', error)
     );
   }
 
   /*
-   * Shared proposal listener:
-   * Firestore collection is the source of truth for both PC and mobile.
+   * Everyone reads the same authoritative proposal collection.
    */
   function startProposals(){
-    const {db,auth} = currentFirebase();
-    if(!db || !auth) return;
+    const db = window.gnpFirebase?.db;
+    if(!db) return;
 
-    if(proposalsStop){
-      try { proposalsStop(); } catch(_) {}
+    if(proposalListenerStop){
+      try { proposalListenerStop(); } catch(_) {}
     }
 
-    proposalsStop = onSnapshot(
+    proposalListenerStop = onSnapshot(
       collection(db, PROPOSAL_COL),
-      snap => {
-        const rows = snap.docs.map(d => ({
-          ...(d.data() || {}),
-          id: String(d.data()?.id || d.id)
-        })).filter(r => pid(r));
+      snapshot => {
+        const rows = snapshot.docs.map(s => ({
+          ...(s.data() || {}),
+          id: String(s.data()?.id || s.id)
+        })).filter(p => proposalId(p));
 
-        writeProposals(rows);
+        saveProposalsLocal(rows);
 
         try { window.app?.ai1?.render?.(); } catch(_) {}
 
-        console.info('[GNP v21] proposal snapshot', rows.length);
+        console.log('[GNP v22] proposals replicated:', rows.length);
       },
-      error => {
-        console.error('[GNP v21] PROPOSAL LISTENER ERROR', error);
-        notify('Firebase 안전제안 동기화 오류: ' + (error?.code || error?.message || 'unknown'));
-      }
-    );
-  }
-
-  /*
-   * PC-only authoritative user writer.
-   */
-  function saveUserPC(row){
-    if(mobile()) return Promise.resolve(false);
-
-    const {db,auth,user} = currentFirebase();
-    const id = uid(row);
-    if(!db || !auth || !user || !id) return Promise.resolve(false);
-
-    return enqueue('user:' + id, async () => {
-      await setDoc(
-        doc(db, USER_COL, id),
-        {
-          ...clean(row),
-          id,
-          legacyId: id,
-          updatedAt: serverTimestamp(),
-          updatedBy: user.uid,
-          masterSource: 'PC'
-        },
-        {merge:true}
-      );
-      return true;
-    });
-  }
-
-  /*
-   * PC-only authoritative proposal writer.
-   */
-  function saveProposalPC(row){
-    if(mobile()) return Promise.resolve(false);
-
-    const {db,auth,user} = currentFirebase();
-    const id = pid(row);
-    if(!db || !auth || !user || !id) return Promise.resolve(false);
-
-    return enqueue('proposal:' + id, async () => {
-      await setDoc(
-        doc(db, PROPOSAL_COL, id),
-        {
-          ...clean(row),
-          id,
-          updatedAt: serverTimestamp(),
-          updatedBy: user.uid,
-          masterSource: 'PC'
-        },
-        {merge:true}
-      );
-      return true;
-    });
-  }
-
-  function deleteProposalPC(id){
-    if(mobile()) return Promise.resolve(false);
-
-    const {db,auth,user} = currentFirebase();
-    id = String(id || '').trim();
-    if(!db || !auth || !user || !id) return Promise.resolve(false);
-
-    return enqueue('proposal:' + id, async () => {
-      await deleteDoc(doc(db, PROPOSAL_COL, id));
-      return true;
-    });
-  }
-
-  /*
-   * Mobile -> PC inbox.
-   * Mobile never writes the authoritative safetyProposals collection.
-   */
-  function sendMobileProposal(row){
-    if(!mobile()) return Promise.resolve(false);
-
-    const {db,auth,user} = currentFirebase();
-    const id = pid(row);
-    if(!db || !auth || !user || !id) return Promise.resolve(false);
-
-    return enqueue('inbox:' + id, async () => {
-      await setDoc(
-        doc(db, INBOX_COL, id),
-        {
-          ...clean(row),
-          id,
-          masterSource: 'MOBILE_INBOX',
-          submittedBy: user.uid,
-          submittedAt: serverTimestamp()
-        },
-        {merge:true}
-      );
-      return true;
-    });
-  }
-
-  /*
-   * PC automatically consumes mobile inbox and publishes to authoritative proposals.
-   */
-  function startInbox(){
-    if(mobile()) return;
-
-    const {db,auth,user} = currentFirebase();
-    if(!db || !auth || !user) return;
-
-    if(inboxStop){
-      try { inboxStop(); } catch(_) {}
-    }
-
-    inboxStop = onSnapshot(
-      collection(db, INBOX_COL),
-      async snap => {
-        for(const d of snap.docs){
-          const row = {
-            ...(d.data() || {}),
-            id: String(d.data()?.id || d.id)
-          };
-
-          if(!pid(row)) continue;
-
-          try {
-            await saveProposalPC({
-              ...row,
-              masterSource: 'PC',
-              importedFrom: 'MOBILE'
-            });
-
-            await deleteDoc(doc(db, INBOX_COL, d.id));
-
-            console.info('[GNP v21] mobile proposal imported to PC:', row.id);
-          } catch(error){
-            console.error('[GNP v21] mobile inbox import failed', row.id, error);
-          }
-        }
-      },
-      error => {
-        console.error('[GNP v21] INBOX LISTENER ERROR', error);
-      }
+      error => console.error('[GNP v22] proposal snapshot error', error)
     );
   }
 
   function patchUsers(){
     const db = window.app?.db;
-    if(!db?.saveUsers || db.saveUsers.__gnpV21) return false;
+    if(!db?.saveUsers || db.saveUsers.__v22) return false;
 
     const original = db.saveUsers.bind(db);
 
@@ -15274,12 +15307,19 @@ import {
 
       const result = original(next);
 
-      if(!mobile()){
-        const before = new Map(previous.map(x => [uid(x),x]).filter(([id])=>id));
-        next.forEach(row => {
-          const id = uid(row);
-          if(id && JSON.stringify(clean(before.get(id))) !== JSON.stringify(clean(row))){
-            saveUserPC(row).catch(e => console.error('[GNP v21] user sync', id, e));
+      if(!isMobile()){
+        const before = new Map(
+          previous.map(u => [userId(u), u]).filter(([id]) => id)
+        );
+
+        next.forEach(user => {
+          const id = userId(user);
+          if(!id) return;
+
+          if(JSON.stringify(clean(before.get(id))) !== JSON.stringify(clean(user))){
+            saveUserToCloud(user).catch(error =>
+              console.error('[GNP v22] user save failed', id, error)
+            );
           }
         });
       }
@@ -15287,35 +15327,43 @@ import {
       return result;
     };
 
-    db.saveUsers.__gnpV21 = true;
+    db.saveUsers.__v22 = true;
     return true;
   }
 
   function patchProposalSaveData(){
     const ai = window.app?.ai1;
-    if(!ai?.saveData || ai.saveData.__gnpV21) return false;
+    if(!ai?.saveData || ai.saveData.__v22) return false;
 
     const original = ai.saveData.bind(ai);
 
     ai.saveData = function(rows){
-      const before = readProposals();
+      const previous = readProposals();
       const next = clone(rows) || [];
 
       const result = original(next);
 
-      if(!mobile()){
-        const bm = new Map(before.map(x=>[pid(x),x]).filter(([id])=>id));
-        const nm = new Map(next.map(x=>[pid(x),x]).filter(([id])=>id));
+      if(!isMobile()){
+        const before = new Map(
+          previous.map(p => [proposalId(p), p]).filter(([id]) => id)
+        );
+        const after = new Map(
+          next.map(p => [proposalId(p), p]).filter(([id]) => id)
+        );
 
-        nm.forEach((row,id)=>{
-          if(JSON.stringify(clean(bm.get(id))) !== JSON.stringify(clean(row))){
-            saveProposalPC(row).catch(e => console.error('[GNP v21] proposal sync', id, e));
+        after.forEach((row,id) => {
+          if(JSON.stringify(clean(before.get(id))) !== JSON.stringify(clean(row))){
+            saveProposalToCloud(row).catch(error =>
+              console.error('[GNP v22] proposal save failed', id, error)
+            );
           }
         });
 
-        bm.forEach((_,id)=>{
-          if(!nm.has(id)){
-            deleteProposalPC(id).catch(e => console.error('[GNP v21] proposal delete sync', id, e));
+        before.forEach((_,id) => {
+          if(!after.has(id)){
+            deleteProposalFromCloud(id).catch(error =>
+              console.error('[GNP v22] proposal delete failed', id, error)
+            );
           }
         });
       }
@@ -15323,13 +15371,13 @@ import {
       return result;
     };
 
-    ai.saveData.__gnpV21 = true;
+    ai.saveData.__v22 = true;
     return true;
   }
 
-  function patchDirectSave(){
+  function patchDirectProposalSave(){
     const ai = window.app?.ai1;
-    if(!ai?.save || ai.save.__gnpV21) return false;
+    if(!ai?.save || ai.save.__v22) return false;
 
     const original = ai.save.bind(ai);
 
@@ -15338,137 +15386,135 @@ import {
       const result = await original(...arguments);
       const after = readProposals();
 
-      const bm = new Map(before.map(x=>[pid(x),x]).filter(([id])=>id));
+      const beforeMap = new Map(
+        before.map(p => [proposalId(p), p]).filter(([id]) => id)
+      );
+
       const changed = after.filter(row => {
-        const id = pid(row);
-        return id && JSON.stringify(clean(bm.get(id))) !== JSON.stringify(clean(row));
+        const id = proposalId(row);
+        return id &&
+          JSON.stringify(clean(beforeMap.get(id))) !== JSON.stringify(clean(row));
       });
 
-      if(mobile()){
+      if(isMobile()){
         for(const row of changed){
-          await sendMobileProposal(row);
+          await submitMobileProposal(row);
         }
-      } else {
+      }else{
         for(const row of changed){
-          await saveProposalPC(row);
+          await saveProposalToCloud(row);
         }
       }
 
       return result;
     };
 
-    ai.save.__gnpV21 = true;
+    ai.save.__v22 = true;
     return true;
   }
 
   function patchDelete(){
     const ai = window.app?.ai1;
-    if(!ai?.remove || ai.remove.__gnpV21) return false;
+    if(!ai?.remove || ai.remove.__v22) return false;
 
     const original = ai.remove.bind(ai);
 
     ai.remove = async function(id){
-      const before = readProposals();
       const result = original(id);
-      const after = readProposals();
 
-      if(!mobile() &&
-         before.some(x=>pid(x)===String(id)) &&
-         !after.some(x=>pid(x)===String(id))){
-        await deleteProposalPC(id);
+      if(!isMobile()){
+        await deleteProposalFromCloud(id);
       }
 
       return result;
     };
 
-    ai.remove.__gnpV21 = true;
+    ai.remove.__v22 = true;
     return true;
   }
 
-  /*
-   * Do not allow local normalize code to turn a PC role back into "반원".
-   */
-  function patchNormalize(){
-    const auth = window.app?.auth;
-    if(!auth?.normalizeUsers || auth.normalizeUsers.__gnpV21) return false;
+  function patchPermissionRoleSave(){
+    /*
+     * The current permission UI converts every non-admin role to USER.
+     * Preserve the role selected in the permission UI when it exists.
+     */
+    const pv = window.permissionV2;
+    if(pv?.save && !pv.save.__v22){
+      const original = pv.save.bind(pv);
 
-    const original = auth.normalizeUsers.bind(auth);
+      pv.save = function(id){
+        const row = (window.app?.db?.getUsers?.() || [])
+          .find(u => String(u.id) === String(id));
 
-    auth.normalizeUsers = function(items){
-      const src = clone(items) || [];
-      const out = original(items) || [];
-      const map = new Map(src.map(u=>[uid(u),u]).filter(([id])=>id));
+        const select = document.getElementById(`pv-role-${id}`);
+        const selected = select?.value;
 
-      out.forEach(u=>{
-        const s = map.get(uid(u));
-        if(!s) return;
-        if(s.role != null) u.role = s.role;
-        if(s.team != null) u.team = s.team;
-        if(Array.isArray(s.modules)) u.modules = s.modules;
-        if(s.approvalPermission != null) u.approvalPermission = !!s.approvalPermission;
-      });
+        /*
+         * Keep legacy MASTER/ADMIN mapping for existing UI.
+         * If another role is already present in the row, do not downgrade it.
+         */
+        if(row && selected === 'USER' && !['MASTER','ADMIN','HSE'].includes(String(row.role))){
+          // preserve existing non-admin role instead of forcibly making USER
+          const originalRole = row.role;
+          const result = original(id);
+          try{
+            const rows = window.app.db.getUsers();
+            const u = rows.find(x => String(x.id) === String(id));
+            if(u) u.role = originalRole;
+            window.app.db.saveUsers(rows);
+          }catch(_){}
+          return result;
+        }
 
-      return out;
-    };
+        return original(id);
+      };
 
-    auth.normalizeUsers.__gnpV21 = true;
-    return true;
+      pv.save.__v22 = true;
+    }
   }
 
   function install(){
+    if(installed) return true;
+
     const app = window.app;
     const gf = window.gnpFirebase;
 
-    if(installed) return true;
-    if(!app?.db || !app?.auth || !app?.ai1) return false;
-    if(!gf?.db || !gf?.auth) return false;
+    if(!app?.db || !app?.ai1 || !gf?.db) return false;
 
     installed = true;
 
     patchUsers();
     patchProposalSaveData();
-    patchDirectSave();
+    patchDirectProposalSave();
     patchDelete();
-    patchNormalize();
+    patchPermissionRoleSave();
 
     /*
-     * We listen using the authenticated Firebase session created by the
-     * existing login bridge. If that session does not exist, the listeners
-     * intentionally do not start; the page must not fall back to a local-only
-     * "shared" fake.
+     * No Firebase Auth dependency for data synchronization.
+     * The Firestore rules supplied by the user currently permit read/write.
      */
-    if(gf.auth.currentUser){
-      startUsers();
-      startProposals();
-      startInbox();
-    }
-
-    gf.auth.onAuthStateChanged?.(user => {
-      if(!user) return;
-      startUsers();
-      startProposals();
-      startInbox();
-    });
+    startUsers();
+    startProposals();
+    startInbox();
 
     console.log(
-      '[GNP v21] PC master / mobile replica installed:',
-      mobile() ? 'MOBILE' : 'PC'
+      '[GNP v22] PC master / mobile replica / Firestore shared source active'
     );
 
     return true;
   }
 
   let tries = 0;
-  const timer = setInterval(()=>{
-    try{
+  const timer = setInterval(() => {
+    try {
       if(install() || ++tries > 300){
         clearInterval(timer);
       }
-    }catch(e){
-      console.error('[GNP v21] install failed', e);
+    }catch(error){
+      console.error('[GNP v22] install error', error);
       if(++tries > 300) clearInterval(timer);
     }
-  },100);
+  }, 100);
 
 })();
 </script>
