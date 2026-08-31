@@ -11200,9 +11200,8 @@ const app = {
       select.dataset.roleListSignature = signature;
     });
   }
-  /* 권한 페이지의 역할 드롭다운은 렌더링 시 이미 최신 상태이므로
-     전체 body를 감시하지 않습니다. body 전체 MutationObserver는 데스크톱
-     드롭다운을 열 때 불필요한 재계산을 유발할 수 있어 제거합니다. */
+  new MutationObserver(() => setTimeout(refreshRoleSelects, 0))
+    .observe(document.body, { childList:true, subtree:true });
   setTimeout(refreshRoleSelects, 0);
 
   window.safetyRole = window.safetyRole || {};
@@ -12231,20 +12230,8 @@ const app = {
   }
 
   document.addEventListener('DOMContentLoaded', postRender);
-  /* 권한 화면 자체가 변경될 때만 갱신합니다. 전체 body를 매번 다시 검사하지 않아
-     데스크톱에서 팀/권한 드롭다운을 열 때 발생하던 불필요한 렌더링 지연을 줄입니다. */
-  let postRenderQueued = false;
-  new MutationObserver((mutations) => {
-    const permissionPage = document.getElementById('view-PERM-V3');
-    if (!permissionPage || !permissionPage.classList.contains('active')) return;
-    if (!mutations.some(m => permissionPage.contains(m.target))) return;
-    if (postRenderQueued) return;
-    postRenderQueued = true;
-    requestAnimationFrame(() => {
-      postRenderQueued = false;
-      postRender();
-    });
-  }).observe(document.body, { childList:true, subtree:true });
+  /* 전체 body 변경마다 패널을 재생성하던 기존 동작을 방지합니다. 패널이 없을 때만 보충합니다. */
+  new MutationObserver(() => setTimeout(postRender, 30)).observe(document.body, { childList:true, subtree:true });
   setTimeout(postRender, 0);
 })();
 </script>
@@ -14531,84 +14518,136 @@ const app = {
 </script>
 </body>
 
-<!-- FINAL DATA SYNC ONLY: preserve latest UI, synchronize proposals through Firebase -->
-<script type="module" id="latest-version-firebase-proposal-sync">
-import {
-  collection, getDocs, setDoc, deleteDoc, doc, onSnapshot, serverTimestamp
-} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+<!-- FINAL DATA SYNC ONLY: Firebase cross-device safety proposal sync -->
+<script type="module" id="final-firebase-proposal-sync-v2">
+import { collection, getDocs, setDoc, deleteDoc, doc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 
 (function(){
-  const KEY="gnp_ai1_proposals", COL="safetyProposals";
-  let db=null, auth=null, unsubscribe=null, syncing=false, cloud=[];
-  const wait=(fn)=>new Promise(resolve=>{let n=0;const t=()=>{try{if(fn())return resolve(true)}catch(e){}if(++n>100)return resolve(false);setTimeout(t,150)};t()});
-  const clone=x=>JSON.parse(JSON.stringify(x||[]));
-  const id=x=>String(x?.id||"");
-  const sig=x=>{const y={...(x||{})};delete y._syncUpdatedAt;delete y._syncUpdatedBy;return JSON.stringify(y)};
-  function local(){try{const x=JSON.parse(localStorage.getItem(KEY)||"[]");return Array.isArray(x)?x:[]}catch(e){return[]}}
-  function saveLocal(x){try{localStorage.setItem(KEY,JSON.stringify(x||[]))}catch(e){}}
-  function merge(a,b){
-    const m=new Map();
-    [...(a||[]),...(b||[])].forEach(x=>{if(id(x))m.set(id(x),x)});
-    return [...m.values()];
-  }
-  async function readCloud(){
-    const s=await getDocs(collection(db,COL));
-    return s.docs.map(d=>({id:String(d.data()?.id||d.id),...(d.data()||{})}));
-  }
-  async function writeMerged(rows){
-    if(syncing)return;
-    syncing=true;
+  'use strict';
+  const KEY='gnp_ai1_proposals';
+  const COL='safetyProposals';
+  let db=null, auth=null, unsubscribe=null, busy=false, cloudRows=[];
+
+  const clone = rows => JSON.parse(JSON.stringify(Array.isArray(rows) ? rows : []));
+  const getId = row => String(row?.id || '').trim();
+  const stripSync = row => {
+    const copy={...(row||{})};
+    delete copy._syncUpdatedAt;
+    delete copy._syncUpdatedBy;
+    return copy;
+  };
+  const signature = row => JSON.stringify(stripSync(row));
+
+  function readLocal(){
     try{
-      const fresh=await readCloud();
-      const merged=merge(fresh,rows);
-      const fm=new Map(fresh.map(x=>[id(x),x])), mm=new Map(merged.map(x=>[id(x),x]));
-      for(const x of merged){
-        const k=id(x); if(!k)continue;
-        const old=fm.get(k);
-        if(!old || sig(old)!==sig(x)){
-          await setDoc(doc(db,COL,k),{...x,_syncUpdatedAt:serverTimestamp(),_syncUpdatedBy:auth.currentUser?.uid||""},{merge:true});
-        }
-      }
-      // Do not delete a cloud document merely because a stale local list omitted it.
-      cloud=clone(merged); saveLocal(merged);
-    }finally{syncing=false}
+      const rows=JSON.parse(localStorage.getItem(KEY)||'[]');
+      return Array.isArray(rows)?rows:[];
+    }catch(_){ return []; }
+  }
+  function writeLocal(rows){
+    try{ localStorage.setItem(KEY,JSON.stringify(rows||[])); }catch(error){ console.warn('안전제안 로컬 저장 실패',error); }
   }
   function refresh(){
-    try{if(window.app?.ai1?.render)window.app.ai1.render()}catch(e){}
-    try{if(window.app?.ai1?.refreshDashboard)window.app.ai1.refreshDashboard()}catch(e){}
+    try{ window.app?.ai1?.render?.(); }catch(_){ }
+    try{ window.app?.ai1?.refreshDashboard?.(); }catch(_){ }
   }
-  async function start(){
-    db=window.gnpFirebase.db; auth=window.gnpFirebase.auth;
-    const first=await readCloud(), loc=local(), merged=merge(first,loc);
-    cloud=clone(merged); saveLocal(merged);
-    // Upload only local additions/edits; never clear existing cloud data from a stale device.
-    await writeMerged(merged);
+  async function readCloud(){
+    const snap=await getDocs(collection(db,COL));
+    return snap.docs.map(d=>({id:String(d.data()?.id||d.id),...(d.data()||{})}));
+  }
+  async function uploadRows(rows){
+    const wanted=new Map((rows||[]).map(row=>[getId(row),row]).filter(([id])=>id));
+    const existing=new Map(cloudRows.map(row=>[getId(row),row]));
+    for(const [id,row] of wanted){
+      const old=existing.get(id);
+      if(!old || signature(old)!==signature(row)){
+        await setDoc(doc(db,COL,id),{
+          ...stripSync(row),
+          _syncUpdatedAt:serverTimestamp(),
+          _syncUpdatedBy:auth?.currentUser?.uid||''
+        },{merge:true});
+      }
+    }
+  }
+  async function startSync(){
+    db=window.gnpFirebase?.db;
+    auth=window.gnpFirebase?.auth;
+    if(!db || !auth) return;
+
+    const remote=await readCloud();
+    const local=readLocal();
+    const remoteIds=new Set(remote.map(getId));
+    // Only upload records that genuinely exist only on this device.
+    // Existing cloud records remain authoritative at startup, preventing stale PC data from overwriting mobile data.
+    const localOnly=local.filter(row=>getId(row) && !remoteIds.has(getId(row)));
+    if(localOnly.length){
+      await uploadRows(localOnly);
+    }
+
+    cloudRows=await readCloud();
+    writeLocal(cloudRows);
+
     if(window.app?.ai1){
-      window.app.ai1.getData=()=>clone(cloud);
-      const oldSave=window.app.ai1.saveData?.bind(window.app.ai1);
-      if(oldSave && !window.app.ai1.__latestSyncSave){
-        window.app.ai1.__latestSyncSave=true;
+      window.app.ai1.getData=()=>clone(cloudRows);
+      if(!window.app.ai1.__finalFirebaseSaveV2){
+        window.app.ai1.__finalFirebaseSaveV2=true;
         window.app.ai1.saveData=function(rows){
           const next=clone(rows);
-          cloud=next; saveLocal(next); refresh();
-          writeMerged(next).then(async()=>{cloud=await readCloud();saveLocal(cloud);refresh()}).catch(console.error);
+          cloudRows=next;
+          writeLocal(next);
+          refresh();
+          if(busy) return true;
+          busy=true;
+          (async()=>{
+            try{
+              const before=await readCloud();
+              cloudRows=before;
+              await uploadRows(next);
+              // Save explicit deletions made through the existing delete action.
+              const nextIds=new Set(next.map(getId));
+              for(const old of before){
+                const oldId=getId(old);
+                if(oldId && !nextIds.has(oldId)) await deleteDoc(doc(db,COL,oldId));
+              }
+              cloudRows=await readCloud();
+              writeLocal(cloudRows);
+              refresh();
+            }catch(error){
+              console.error('Firebase 안전제안 동기화 오류:',error);
+            }finally{ busy=false; }
+          })();
           return true;
         };
       }
     }
-    if(unsubscribe)unsubscribe();
-    unsubscribe=onSnapshot(collection(db,COL),s=>{
-      if(syncing)return;
-      cloud=s.docs.map(d=>({id:String(d.data()?.id||d.id),...(d.data()||{})}));
-      saveLocal(cloud); refresh();
-    },console.error);
+
+    if(unsubscribe) unsubscribe();
+    unsubscribe=onSnapshot(collection(db,COL),snap=>{
+      if(busy) return;
+      cloudRows=snap.docs.map(d=>({id:String(d.data()?.id||d.id),...(d.data()||{})}));
+      writeLocal(cloudRows);
+      refresh();
+    },error=>console.error('Firebase 안전제안 실시간 동기화 오류:',error));
     refresh();
   }
-  wait(()=>window.gnpFirebase?.db&&window.gnpFirebase?.auth&&window.app?.ai1).then(ok=>{
-    if(!ok)return;
-    onAuthStateChanged(window.gnpFirebase.auth,u=>{if(u)start();else{if(unsubscribe)unsubscribe();unsubscribe=null}});
-  });
+
+  function waitForFirebase(){
+    let count=0;
+    const timer=setInterval(()=>{
+      if(window.gnpFirebase?.db && window.gnpFirebase?.auth && window.app?.ai1){
+        clearInterval(timer);
+        onAuthStateChanged(window.gnpFirebase.auth,user=>{
+          if(user) startSync().catch(error=>console.error('Firebase 안전제안 초기 동기화 오류:',error));
+          else if(unsubscribe){ unsubscribe(); unsubscribe=null; }
+        });
+      }else if(++count>200){
+        clearInterval(timer);
+        console.warn('Firebase 안전제안 동기화 초기화 대기 시간 초과');
+      }
+    },150);
+  }
+  waitForFirebase();
 })();
 </script>
 
@@ -14781,4 +14820,113 @@ import { collection, getDocs, setDoc, serverTimestamp } from "https://www.gstati
 </script>
 
 \n<script id="absolute-executive-four-fix">\n(function(){\n  const EXEC = new Set(["양영훈","채일식","박경원","공동화"]);\n  const isExec = u => u && EXEC.has(String(u.id || u.name || "").trim());\n  const force = rows => {\n    if (!Array.isArray(rows)) return [];\n    let changed=false;\n    rows.forEach(u=>{ if(isExec(u) && u.role !== "임원"){ u.role="임원"; changed=true; } });\n    return {rows, changed};\n  };\n  const boot=()=>{\n    const app=window.app;\n    if(!app || !app.db || !app.auth) return false;\n    if(!app.db.__absoluteExecFix){\n      const rawGet=app.db.getUsers.bind(app.db);\n      const rawSave=app.db.saveUsers.bind(app.db);\n      app.db.getUsers=function(){\n        const result=force(rawGet());\n        if(result.changed) rawSave(result.rows);\n        if(app.auth.currentUser && isExec(app.auth.currentUser)) app.auth.currentUser.role="임원";\n        return result.rows;\n      };\n      app.db.saveUsers=function(rows){\n        const result=force(rows);\n        if(app.auth.currentUser && isExec(app.auth.currentUser)) app.auth.currentUser.role="임원";\n        return rawSave(result.rows);\n      };\n      app.db.__absoluteExecFix=true;\n    }\n    const rows=app.db.getUsers();\n    if(app.auth.currentUser && isExec(app.auth.currentUser)){\n      app.auth.currentUser.role="임원";\n      const me=rows.find(u=>String(u.id||u.name||"").trim()===String(app.auth.currentUser.id||app.auth.currentUser.name||"").trim());\n      if(me) me.role="임원";\n    }\n    try{\n      document.querySelectorAll('select[id^="spr-role-"]').forEach(sel=>{\n        const id=sel.id.replace(/^spr-role-/,'');\n        if(EXEC.has(id)){ sel.value="임원"; sel.dispatchEvent(new Event('change',{bubbles:true})); }\n      });\n    }catch(e){}\n    return true;\n  };\n  let n=0;\n  const timer=setInterval(()=>{ if(boot() || ++n>120) clearInterval(timer); },250);\n  document.addEventListener('click',()=>setTimeout(boot,50),true);\n})();\n</script>\n
+<!-- FINAL MOBILE SAFETY PROPOSAL PHOTO BUTTONS ONLY -->
+<style id="final-mobile-safety-photo-actions-v2">
+@media (max-width:768px){
+  #ai1-files{position:absolute !important;width:1px !important;height:1px !important;opacity:0 !important;pointer-events:none !important;}
+  #ai1-mobile-photo-actions{
+    display:grid !important;
+    grid-template-columns:repeat(3,minmax(0,1fr)) !important;
+    gap:7px !important;
+    width:100% !important;
+    margin-top:8px !important;
+  }
+  #ai1-mobile-photo-actions > button{
+    width:100% !important;
+    min-width:0 !important;
+    max-width:none !important;
+    height:42px !important;
+    min-height:42px !important;
+    margin:0 !important;
+    padding:0 4px !important;
+    border-radius:10px !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    gap:3px !important;
+    font-size:12px !important;
+    line-height:1 !important;
+    font-weight:800 !important;
+    white-space:nowrap !important;
+    overflow:hidden !important;
+    box-sizing:border-box !important;
+  }
+  #ai1-mobile-photo-actions > button i{
+    margin:0 !important;
+    font-size:12px !important;
+    flex:0 0 auto !important;
+  }
+  #ai1-mobile-photo-actions #ai1-mobile-gallery-btn::after{content:'첨부하기';}
+  #ai1-mobile-photo-actions #ai1-mobile-gallery-btn,
+  #ai1-mobile-photo-actions #ai1-mobile-camera-btn,
+  #ai1-mobile-photo-actions #ai1-mobile-edit-btn{font-size:0 !important;}
+  #ai1-mobile-photo-actions #ai1-mobile-gallery-btn::after,
+  #ai1-mobile-photo-actions #ai1-mobile-camera-btn::after,
+  #ai1-mobile-photo-actions #ai1-mobile-edit-btn::after{font-size:12px !important;}
+  #ai1-mobile-photo-actions #ai1-mobile-camera-btn::after{content:'사진찍기';}
+  #ai1-mobile-photo-actions #ai1-mobile-edit-btn::after{content:'사진편집하기';}
+}
+@media (max-width:390px){
+  #ai1-mobile-photo-actions{gap:5px !important;}
+  #ai1-mobile-photo-actions > button{height:40px !important;min-height:40px !important;font-size:11px !important;padding:0 2px !important;}
+  #ai1-mobile-photo-actions #ai1-mobile-gallery-btn::after,
+  #ai1-mobile-photo-actions #ai1-mobile-camera-btn::after,
+  #ai1-mobile-photo-actions #ai1-mobile-edit-btn::after{font-size:11px !important;}
+}
+</style>
+<script id="final-mobile-safety-photo-actions-v2-script">
+(function(){
+  function setup(){
+    if(window.innerWidth>768) return;
+    const input=document.getElementById('ai1-files');
+    if(!input) return;
+    let wrap=document.getElementById('ai1-mobile-photo-actions');
+    if(!wrap){
+      wrap=document.createElement('div');
+      wrap.id='ai1-mobile-photo-actions';
+      input.parentNode.insertBefore(wrap,input.nextSibling);
+    }
+    let gallery=document.getElementById('ai1-mobile-gallery-btn');
+    let camera=document.getElementById('ai1-mobile-camera-btn');
+    let edit=document.getElementById('ai1-mobile-edit-btn');
+    if(!gallery){
+      gallery=document.createElement('button');
+      gallery.type='button'; gallery.id='ai1-mobile-gallery-btn';
+      gallery.className='bg-slate-100 text-slate-800 border border-slate-300';
+      gallery.innerHTML='<i class="fas fa-paperclip"></i>';
+      wrap.appendChild(gallery);
+    }
+    if(!camera){
+      camera=document.createElement('button');
+      camera.type='button'; camera.id='ai1-mobile-camera-btn';
+      camera.className='bg-sky-700 text-white';
+      camera.innerHTML='<i class="fas fa-camera"></i>';
+      wrap.appendChild(camera);
+    }
+    if(!edit){
+      edit=document.createElement('button');
+      edit.type='button'; edit.id='ai1-mobile-edit-btn';
+      edit.className='bg-blue-50 text-blue-700 border border-blue-200';
+      edit.innerHTML='<i class="fas fa-pen-ruler"></i>';
+      wrap.appendChild(edit);
+    }
+    gallery.onclick=function(e){e.preventDefault();e.stopPropagation();input.removeAttribute('capture');input.click();};
+    camera.onclick=function(e){e.preventDefault();e.stopPropagation();input.setAttribute('capture','environment');input.click();};
+    edit.onclick=function(e){
+      e.preventDefault();e.stopPropagation();
+      const editorButton=document.getElementById('ai1-photo-edit-btn');
+      if(editorButton) editorButton.click();
+      else if(window.app?.ai1?.photoEditor?.open) window.app.ai1.photoEditor.open();
+      else alert('먼저 현장 사진을 첨부해 주세요.');
+    };
+    input.addEventListener('change',function(){input.removeAttribute('capture');},{passive:true});
+    wrap.classList.remove('hidden');
+    wrap.style.display='grid';
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',setup); else setup();
+  window.addEventListener('load',setup);
+  setTimeout(setup,300);setTimeout(setup,900);setTimeout(setup,1500);
+})();
+</script>
+
 </html>
