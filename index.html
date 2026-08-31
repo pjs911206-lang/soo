@@ -14562,183 +14562,388 @@ const app = {
 })();
 </script>
 <script type="module" id="gnp-v4-proposal-sync">
-import { collection, getDocs, setDoc, doc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+import {
+  collection, getDocs, setDoc, doc, onSnapshot, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 
 (function(){
   'use strict';
-  const KEY='gnp_ai1_proposals';
-  const COL='safetyProposals';
-  const DOMAIN='gnp-hse.firebaseapp.com';
-  const MAX_PHOTO=700000;
-  let db=null, auth=null, unsubscribe=null, queue=Promise.resolve(), bound=false;
 
-  const clone=x=>{ try{return JSON.parse(JSON.stringify(x||[]));}catch{return[];} };
-  const id=x=>String(x?.id||'').trim();
-  const local=()=>{try{const x=JSON.parse(localStorage.getItem(KEY)||'[]');return Array.isArray(x)?x:[]}catch{return[];}};
-  const saveLocal=x=>{try{localStorage.setItem(KEY,JSON.stringify(x||[]));}catch(e){console.error('[GNP] local proposal save failed',e);}};
-  const wait=fn=>new Promise(resolve=>{let n=0;const t=()=>{try{if(fn())return resolve(true);}catch{} if(++n>240)return resolve(false);setTimeout(t,150);};t();});
-  const size=x=>typeof x==='string'?x.length:0;
+  /*
+   * 안전제안 Firebase 동기화 전용 패치
+   * - 로그인 전에는 Firebase 인증/Firestore를 호출하지 않습니다.
+   * - 별도 Firebase 로그인(ensureAuth)을 하지 않습니다.
+   * - 기존 메인 Firebase Auth 세션이 생긴 뒤에만 pull/push + onSnapshot을 시작합니다.
+   * - 3초 반복 재시도(setInterval)는 제거하여 로그인/초기화 랙을 방지합니다.
+   * - 다른 메뉴/권한/사진 기능은 변경하지 않습니다.
+   */
 
-  async function sha(text){
-    const d=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(text)));
-    return Array.from(new Uint8Array(d)).map(b=>b.toString(16).padStart(2,'0')).join('');
-  }
+  const KEY = 'gnp_ai1_proposals';
+  const COL = 'safetyProposals';
+  const MAX_PHOTO = 700000;
 
-  async function ensureAuth(){
-    if(auth?.currentUser) return true;
-    const u=window.app?.auth?.currentUser;
-    const legacyId=String(u?.id||u?.name||'').trim();
-    const pw=String(u?.pw||'');
-    if(!legacyId || !pw) return false;
-    const email=`u-${(await sha(legacyId)).slice(0,32)}@${DOMAIN}`;
-    try{
-      const c=await signInWithEmailAndPassword(auth,email,pw);
-      return !!c?.user;
-    }catch(e){
-      // If this legacy account was never migrated, create the matching Firebase Auth account.
-      if(e?.code==='auth/user-not-found' || e?.code==='auth/invalid-credential' || e?.code==='auth/invalid-login-credentials'){
-        try{
-          const c=await createUserWithEmailAndPassword(auth,email,pw);
-          return !!c?.user;
-        }catch(createErr){
-          console.warn('[GNP] Firebase proposal auth unavailable:',createErr?.code||createErr?.message||createErr);
-        }
-      } else {
-        console.warn('[GNP] Firebase proposal sign-in failed:',e?.code||e?.message||e);
-      }
-      return false;
+  let db = null;
+  let auth = null;
+  let unsubscribe = null;
+  let bound = false;
+  let syncStarted = false;
+  let syncing = false;
+  let pendingPush = false;
+
+  const clone = (x) => {
+    try { return JSON.parse(JSON.stringify(x || [])); }
+    catch { return []; }
+  };
+
+  const proposalId = (x) => String(x?.id || '').trim();
+
+  const local = () => {
+    try {
+      const x = JSON.parse(localStorage.getItem(KEY) || '[]');
+      return Array.isArray(x) ? x : [];
+    } catch {
+      return [];
     }
-  }
+  };
 
-  function compress(dataUrl,max=MAX_PHOTO){
-    return new Promise(resolve=>{
-      if(!dataUrl || size(dataUrl)<=max) return resolve(dataUrl||'');
-      const img=new Image();
-      img.onload=()=>{
-        let scale=Math.min(1,1000/Math.max(img.naturalWidth||img.width,img.naturalHeight||img.height));
-        let quality=.65;
-        const canvas=document.createElement('canvas');
-        for(let i=0;i<10;i++){
-          canvas.width=Math.max(1,Math.round((img.naturalWidth||img.width)*scale));
-          canvas.height=Math.max(1,Math.round((img.naturalHeight||img.height)*scale));
-          const ctx=canvas.getContext('2d');
-          ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
-          ctx.drawImage(img,0,0,canvas.width,canvas.height);
-          const out=canvas.toDataURL('image/jpeg',quality);
-          if(size(out)<=max) return resolve(out);
-          if(quality>.40) quality-=.05; else scale*=.80;
+  const saveLocal = (rows) => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(rows || []));
+    } catch (e) {
+      console.error('[GNP] local proposal save failed:', e);
+    }
+  };
+
+  const size = (x) => typeof x === 'string' ? x.length : 0;
+
+  function compress(dataUrl, max = MAX_PHOTO) {
+    return new Promise(resolve => {
+      if (!dataUrl || size(dataUrl) <= max) return resolve(dataUrl || '');
+
+      const img = new Image();
+
+      img.onload = () => {
+        let scale = Math.min(
+          1,
+          1000 / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height)
+        );
+        let quality = 0.65;
+        const canvas = document.createElement('canvas');
+
+        for (let i = 0; i < 10; i++) {
+          canvas.width = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+          canvas.height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
+
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          const out = canvas.toDataURL('image/jpeg', quality);
+          if (size(out) <= max) return resolve(out);
+
+          if (quality > 0.40) quality -= 0.05;
+          else scale *= 0.80;
         }
-        resolve(canvas.toDataURL('image/jpeg',.38));
+
+        resolve(canvas.toDataURL('image/jpeg', 0.38));
       };
-      img.onerror=()=>resolve('');
-      img.src=dataUrl;
+
+      img.onerror = () => resolve('');
+      img.src = dataUrl;
     });
   }
 
-  async function cloudRow(row){
-    const x={...(row||{})};
-    if(size(x.photoDataUrl)>MAX_PHOTO)x.photoDataUrl=await compress(x.photoDataUrl);
-    if(size(x.improvementPhotoDataUrl)>MAX_PHOTO)x.improvementPhotoDataUrl=await compress(x.improvementPhotoDataUrl);
-    Object.keys(x).forEach(k=>{if(x[k]===undefined)delete x[k];});
+  async function cloudRow(row) {
+    const x = { ...(row || {}) };
+
+    if (size(x.photoDataUrl) > MAX_PHOTO) {
+      x.photoDataUrl = await compress(x.photoDataUrl);
+    }
+
+    if (size(x.improvementPhotoDataUrl) > MAX_PHOTO) {
+      x.improvementPhotoDataUrl = await compress(x.improvementPhotoDataUrl);
+    }
+
+    Object.keys(x).forEach(k => {
+      if (x[k] === undefined) delete x[k];
+    });
+
     return x;
   }
 
-  async function readCloud(){
-    if(!db) return [];
-    const s=await getDocs(collection(db,COL));
-    return s.docs.map(d=>({...(d.data()||{}),id:String(d.data()?.id||d.id)})).filter(x=>id(x));
+  async function readCloud() {
+    if (!db || !auth?.currentUser) return [];
+
+    const snap = await getDocs(collection(db, COL));
+
+    return snap.docs
+      .map(d => ({
+        ...(d.data() || {}),
+        id: String(d.data()?.id || d.id)
+      }))
+      .filter(x => proposalId(x));
   }
 
-  async function writeRows(rows){
-    if(!db || !auth?.currentUser) return false;
-    const list=clone(rows);
-    queue=queue.then(async()=>{
-      // Write every local proposal by its stable proposal id. No dependence on browser localStorage across devices.
-      for(const raw of list){
-        const k=id(raw); if(!k) continue;
-        const payload=await cloudRow(raw);
-        await setDoc(doc(db,COL,k),{...payload,id:k,_syncUpdatedAt:serverTimestamp(),_syncUpdatedBy:auth.currentUser.uid},{merge:true});
-      }
-      return true;
-    }).catch(e=>{
-      console.error('[GNP] safetyProposals Firestore write failed:',e?.code||e?.message||e);
+  async function writeRows(rows) {
+    if (!db || !auth?.currentUser || syncing) {
+      pendingPush = true;
       return false;
-    });
-    return queue;
+    }
+
+    syncing = true;
+    pendingPush = false;
+
+    try {
+      const list = clone(rows);
+
+      for (const raw of list) {
+        const id = proposalId(raw);
+        if (!id) continue;
+
+        const payload = await cloudRow(raw);
+
+        await setDoc(
+          doc(db, COL, id),
+          {
+            ...payload,
+            id,
+            _syncUpdatedAt: serverTimestamp(),
+            _syncUpdatedBy: auth.currentUser.uid
+          },
+          { merge: true }
+        );
+      }
+
+      return true;
+    } catch (e) {
+      console.error(
+        '[GNP] safetyProposals Firestore write failed:',
+        e?.code || e?.message || e
+      );
+      pendingPush = true;
+      return false;
+    } finally {
+      syncing = false;
+    }
   }
 
-  async function pullCloud(){
-    try{
-      const rows=await readCloud();
-      if(!rows.length)return false;
-      // Cloud is authoritative across devices. Keep local-only rows only if they are not already cloud rows, then push them once.
-      const loc=local();
-      const map=new Map();
-      [...rows,...loc].forEach(x=>{if(id(x))map.set(id(x),x);});
-      const merged=[...map.values()];
+  async function pullCloud() {
+    if (!db || !auth?.currentUser) return false;
+
+    try {
+      const rows = await readCloud();
+      const loc = local();
+      const map = new Map();
+
+      /*
+       * 같은 id가 있으면 Firebase 데이터를 우선 사용하고,
+       * 아직 Firebase에 없는 로컬 제안만 유지합니다.
+       */
+      loc.forEach(x => {
+        if (proposalId(x)) map.set(proposalId(x), x);
+      });
+
+      rows.forEach(x => {
+        if (proposalId(x)) map.set(proposalId(x), x);
+      });
+
+      const merged = [...map.values()];
+
       saveLocal(merged);
-      try{window.app?.ai1?.render?.();}catch{}
+
+      try {
+        window.app?.ai1?.render?.();
+      } catch {}
+
       return true;
-    }catch(e){
-      console.error('[GNP] safetyProposals Firestore read failed:',e?.code||e?.message||e);
+    } catch (e) {
+      console.error(
+        '[GNP] safetyProposals Firestore read failed:',
+        e?.code || e?.message || e
+      );
       return false;
     }
   }
 
-  function bind(){
-    const ai=window.app?.ai1;
-    if(!ai || bound)return false;
-    bound=true;
-    ai.getData=()=>local();
-    const originalSaveData=ai.saveData?.bind(ai);
-    ai.saveData=function(rows){
-      const next=clone(rows);
+  function bind() {
+    const ai = window.app?.ai1;
+    if (!ai || bound) return false;
+
+    bound = true;
+
+    /*
+     * 관리 화면/작성 화면 모두 동일한 Firebase 기준 데이터를 사용하도록
+     * 기존 getData를 localStorage reader로 연결합니다.
+     */
+    ai.getData = () => local();
+
+    const originalSaveData = ai.saveData?.bind(ai);
+
+    ai.saveData = function(rows) {
+      const next = clone(rows);
+
       saveLocal(next);
-      (async()=>{
-        if(await ensureAuth()) await writeRows(next);
-      })();
-      try{ai.render?.();}catch{}
+
+      /*
+       * Firebase 인증이 준비되면 즉시 1회 동기화합니다.
+       * 인증 전에는 저장만 해두고 onAuthStateChanged에서 다시 처리합니다.
+       */
+      if (auth?.currentUser) {
+        writeRows(next).catch(() => {});
+      } else {
+        pendingPush = true;
+      }
+
+      try {
+        ai.render?.();
+      } catch {}
+
       return originalSaveData ? originalSaveData(next) : true;
     };
-    const originalSave=ai.save?.bind(ai);
-    if(originalSave && !ai.__gnpV4SaveWrapped){
-      ai.__gnpV4SaveWrapped=true;
-      ai.save=async function(){
-        const result=await originalSave();
-        // The legacy save() writes directly to localStorage, so explicitly sync after it completes.
-        const rows=local();
-        if(await ensureAuth()) await writeRows(rows);
-        return result;
-      };
-    }
+
     return true;
   }
 
-  async function start(){
-    const gf=window.gnpFirebase;
-    const ai=window.app?.ai1;
-    if(!gf?.db || !gf?.auth || !ai) return false;
-    db=gf.db;auth=gf.auth;
-    if(!(await ensureAuth())) return false;
-    // First pull shared cloud data, then upload any local-only rows (e.g. a proposal just created on a phone).
-    await pullCloud();
-    await writeRows(local());
+  async function syncOnce() {
+    if (!auth?.currentUser || !db) return false;
+
     bind();
-    if(unsubscribe)unsubscribe();
-    unsubscribe=onSnapshot(collection(db,COL),snap=>{
-      const rows=snap.docs.map(d=>({...(d.data()||{}),id:String(d.data()?.id||d.id)})).filter(x=>id(x));
-      if(rows.length){saveLocal(rows);try{window.app?.ai1?.render?.();}catch{}}
-    },e=>console.error('[GNP] safetyProposals realtime sync failed:',e?.code||e?.message||e));
+
+    await pullCloud();
+
+    /*
+     * pull 후 현재 브라우저에만 존재하는 제안을 Firebase로 올립니다.
+     */
+    await writeRows(local());
+
     return true;
   }
 
-  wait(()=>window.gnpFirebase?.db&&window.gnpFirebase?.auth&&window.app?.ai1).then(()=>{
-    db=window.gnpFirebase.db;auth=window.gnpFirebase.auth;
-    onAuthStateChanged(auth,u=>{if(u)start().catch(console.error);});
-    start().catch(console.error);
-    setInterval(()=>{bind();if(auth?.currentUser)writeRows(local()).catch(()=>{});else start().catch(()=>{});},3000);
-  });
+  function startRealtime() {
+    if (syncStarted || !db || !auth?.currentUser) return;
+
+    syncStarted = true;
+
+    syncOnce().catch(console.error);
+
+    if (unsubscribe) {
+      try { unsubscribe(); } catch {}
+    }
+
+    unsubscribe = onSnapshot(
+      collection(db, COL),
+      snap => {
+        const rows = snap.docs
+          .map(d => ({
+            ...(d.data() || {}),
+            id: String(d.data()?.id || d.id)
+          }))
+          .filter(x => proposalId(x));
+
+        if (!rows.length) return;
+
+        /*
+         * 실시간 변경은 Firebase 데이터를 로컬에 반영합니다.
+         * 작성 직후 로컬 데이터가 아직 업로드되기 전인 경우도 보존합니다.
+         */
+        const current = local();
+        const map = new Map();
+
+        current.forEach(x => {
+          if (proposalId(x)) map.set(proposalId(x), x);
+        });
+
+        rows.forEach(x => {
+          if (proposalId(x)) map.set(proposalId(x), x);
+        });
+
+        saveLocal([...map.values()]);
+
+        try {
+          window.app?.ai1?.render?.();
+        } catch {}
+      },
+      error => {
+        console.error(
+          '[GNP] safetyProposals realtime sync failed:',
+          error?.code || error?.message || error
+        );
+
+        /*
+         * 실시간 listener가 종료되어도 전체 페이지를 다시 초기화하지 않습니다.
+         * 다음 로그인/세션 이벤트에서 재연결됩니다.
+         */
+        syncStarted = false;
+      }
+    );
+
+    if (pendingPush) {
+      writeRows(local()).catch(() => {});
+    }
+  }
+
+  function stopRealtime() {
+    if (unsubscribe) {
+      try { unsubscribe(); } catch {}
+      unsubscribe = null;
+    }
+    syncStarted = false;
+  }
+
+  function attachFirebase() {
+    const gf = window.gnpFirebase;
+
+    if (!gf?.db || !gf?.auth) return false;
+
+    db = gf.db;
+    auth = gf.auth;
+
+    bind();
+
+    /*
+     * 핵심:
+     * 기존처럼 로그인 전 ensureAuth/signIn/createUser를 호출하지 않습니다.
+     * 메인 앱의 Firebase Auth 세션만 사용합니다.
+     */
+    onAuthStateChanged(auth, user => {
+      if (user) {
+        startRealtime();
+      } else {
+        stopRealtime();
+      }
+    });
+
+    if (auth.currentUser) {
+      startRealtime();
+    }
+
+    return true;
+  }
+
+  /*
+   * Firebase가 준비될 때까지 짧게 확인하지만,
+   * Firebase 인증/Firestore 요청은 하지 않습니다.
+   */
+  let tries = 0;
+
+  const waitTimer = setInterval(() => {
+    if (attachFirebase() || ++tries > 100) {
+      clearInterval(waitTimer);
+    }
+  }, 100);
+
+  /*
+   * 저장 후 다른 브라우저/탭과 데이터가 맞지 않는 경우를 대비한
+   * 가벼운 수동 동기화는 30초마다 한 번만 실행합니다.
+   * 로그인 전에는 절대 실행하지 않습니다.
+   */
+  setInterval(() => {
+    if (document.hidden || !auth?.currentUser || !db) return;
+    syncOnce().catch(() => {});
+  }, 30000);
+
 })();
 </script>
 </body>
