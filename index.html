@@ -8283,6 +8283,9 @@ const app = {
       // 사진을 첨부한 제안이 누적되어도 브라우저 저장소 한도를 초과하지 않도록 모두 최적화합니다.
       data = await optimizeProposalPhotos(data);
       writeProposals(data);
+      if (typeof window.__gnpSaveProposalsToCloud === 'function') {
+        await window.__gnpSaveProposalsToCloud(data, existingIndex >= 0 ? data[existingIndex]?.id : item.id);
+      }
 
       alert(existingIndex >= 0
         ? '안전제안 수정 내용이 저장되었습니다.'
@@ -14854,330 +14857,6 @@ import { collection, getDocs, setDoc, serverTimestamp } from "https://www.gstati
      - realtime receive
      - persistence across logout/login
 -->
-<script type="module" id="gnp-final-safety-proposal-sync-v14">
-import {
-  collection,
-  doc,
-  setDoc,
-  deleteDoc,
-  onSnapshot
-} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
-import {
-  onAuthStateChanged
-} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
-
-(function(){
-  'use strict';
-
-  const KEY = 'gnp_ai1_proposals';
-  const PENDING_KEY = 'gnp_ai1_proposals_pending_v14';
-  const COL = 'safetyProposals';
-
-  let installed = false;
-  let stopSnapshot = null;
-  let authStop = null;
-  let syncing = false;
-  const writeQueue = new Map();
-
-  function clone(rows){
-    try { return JSON.parse(JSON.stringify(Array.isArray(rows) ? rows : [])); }
-    catch { return []; }
-  }
-
-  function idOf(row){
-    return String(row?.id || '').trim();
-  }
-
-  function readLocal(){
-    try {
-      const rows = JSON.parse(localStorage.getItem(KEY) || '[]');
-      return Array.isArray(rows) ? rows : [];
-    } catch {
-      return [];
-    }
-  }
-
-  function writeLocal(rows){
-    try { localStorage.setItem(KEY, JSON.stringify(rows || [])); }
-    catch(e){ console.warn('[GNP v14] local save failed', e); }
-  }
-
-  function readPending(){
-    try {
-      const obj = JSON.parse(localStorage.getItem(PENDING_KEY) || '{}');
-      return obj && typeof obj === 'object' ? obj : {};
-    } catch {
-      return {};
-    }
-  }
-
-  function writePending(pending){
-    try { localStorage.setItem(PENDING_KEY, JSON.stringify(pending || {})); }
-    catch(e){ console.warn('[GNP v14] pending save failed', e); }
-  }
-
-  function clean(row){
-    const out = { ...(row || {}) };
-    Object.keys(out).forEach(k => {
-      if(out[k] === undefined) delete out[k];
-    });
-    return out;
-  }
-
-  function rowsById(rows){
-    const m = new Map();
-    clone(rows).forEach(r => {
-      const id = idOf(r);
-      if(id) m.set(id, r);
-    });
-    return m;
-  }
-
-  function rememberChanges(previousRows, nextRows){
-    const previous = rowsById(previousRows);
-    const next = rowsById(nextRows);
-    const pending = readPending();
-
-    for(const [id, row] of next){
-      const before = previous.get(id);
-      if(JSON.stringify(clean(before)) !== JSON.stringify(clean(row))){
-        pending[id] = { op: 'set', row: clean(row) };
-      }
-    }
-
-    for(const id of previous.keys()){
-      if(!next.has(id)){
-        pending[id] = { op: 'delete', row: null };
-      }
-    }
-
-    writePending(pending);
-    return pending;
-  }
-
-  function removePending(id){
-    const pending = readPending();
-    delete pending[id];
-    writePending(pending);
-  }
-
-  function queueWrite(id, fn){
-    const previous = writeQueue.get(id) || Promise.resolve();
-
-    const next = previous
-      .catch(() => {})
-      .then(fn)
-      .finally(() => {
-        if(writeQueue.get(id) === next) writeQueue.delete(id);
-      });
-
-    writeQueue.set(id, next);
-    return next;
-  }
-
-  async function pushPending(){
-    const gf = window.gnpFirebase;
-    const user = gf?.auth?.currentUser;
-
-    if(!gf?.db || !user) return false;
-    if(syncing) return false;
-
-    syncing = true;
-
-    try {
-      const pending = readPending();
-      const entries = Object.entries(pending);
-
-      for(const [id, item] of entries){
-        if(!item) {
-          removePending(id);
-          continue;
-        }
-
-        if(item.op === 'delete'){
-          await queueWrite(id, () =>
-            deleteDoc(doc(gf.db, COL, id))
-          );
-        } else {
-          const row = clean(item.row || {});
-          row.id = id;
-
-          await queueWrite(id, () =>
-            setDoc(
-              doc(gf.db, COL, id),
-              {
-                ...row,
-                id
-              },
-              { merge: true }
-            )
-          );
-        }
-
-        /*
-         * 해당 문서 하나의 서버 저장이 성공한 뒤에만 pending에서 제거합니다.
-         * 로그아웃/새로고침 전에 남아 있으면 다음 로그인 때 재시도합니다.
-         */
-        removePending(id);
-      }
-
-      console.log('[GNP v14] pending 안전제안 Firebase 저장 완료');
-      return true;
-    } catch(error){
-      console.error(
-        '[GNP v14] Firebase pending save failed:',
-        error?.code || error?.message || error
-      );
-      return false;
-    } finally {
-      syncing = false;
-    }
-  }
-
-  function refreshUI(){
-    try { window.app?.ai1?.render?.(); } catch(e) {}
-  }
-
-  function subscribe(){
-    const gf = window.gnpFirebase;
-    if(!gf?.db || !gf?.auth?.currentUser) return;
-
-    if(stopSnapshot){
-      try { stopSnapshot(); } catch(_) {}
-      stopSnapshot = null;
-    }
-
-    stopSnapshot = onSnapshot(
-      collection(gf.db, COL),
-      snapshot => {
-        const cloud = snapshot.docs.map(s => {
-          const data = s.data() || {};
-          return { ...data, id: String(data.id || s.id) };
-        }).filter(r => idOf(r));
-
-        const pending = readPending();
-        const cloudMap = rowsById(cloud);
-
-        /*
-         * Firestore를 기본 source of truth로 사용하되,
-         * 아직 서버 저장 완료가 확인되지 않은 pending 변경은
-         * 로컬 값을 유지합니다.
-         */
-        for(const [id, change] of Object.entries(pending)){
-          if(change?.op === 'set'){
-            cloudMap.set(id, change.row);
-          } else if(change?.op === 'delete'){
-            cloudMap.delete(id);
-          }
-        }
-
-        const merged = [...cloudMap.values()];
-        writeLocal(merged);
-        refreshUI();
-
-        console.log('[GNP v14] Firestore realtime:', merged.length, '건');
-      },
-      error => {
-        console.error(
-          '[GNP v14] Firestore realtime listener error:',
-          error?.code || error?.message || error
-        );
-      }
-    );
-  }
-
-  function install(){
-    const app = window.app;
-    const gf = window.gnpFirebase;
-
-    if(!app?.ai1 || typeof app.ai1.saveData !== 'function') return false;
-    if(!gf?.db || !gf?.auth) return false;
-    if(installed) return true;
-
-    installed = true;
-
-    const originalGetData = typeof app.ai1.getData === 'function'
-      ? app.ai1.getData.bind(app.ai1)
-      : readLocal;
-
-    const originalSaveData = app.ai1.saveData.bind(app.ai1);
-
-    /*
-     * getData는 항상 현재 local mirror를 사용합니다.
-     * 즉, 로그인 후 Firebase snapshot으로 복원된 자료를 바로 사용합니다.
-     */
-    app.ai1.getData = function(){
-      return readLocal();
-    };
-
-    /*
-     * 안전제안의 모든 변경은 saveData를 지나갑니다.
-     * 변경된 문서만 pending queue에 넣고 Firebase에 즉시 저장합니다.
-     */
-    app.ai1.saveData = function(rows){
-      const previous = originalGetData() || readLocal();
-      const next = clone(rows);
-
-      const result = originalSaveData(next);
-      rememberChanges(previous, next);
-
-      /*
-       * 로그인되어 있으면 즉시 Firestore 저장.
-       * 로그인 전/재인증 중이면 pending으로 보존하고
-       * Auth 상태가 돌아오는 순간 다시 전송합니다.
-       */
-      pushPending().catch(() => {});
-
-      return result;
-    };
-
-    /*
-     * Firebase 인증 세션이 만들어지는 순간:
-     * 1. 실시간 listener 연결
-     * 2. 이전에 서버에 못 올라간 pending 변경 업로드
-     */
-    authStop = onAuthStateChanged(gf.auth, async user => {
-      if(stopSnapshot){
-        try { stopSnapshot(); } catch(_) {}
-        stopSnapshot = null;
-      }
-
-      if(!user) return;
-
-      subscribe();
-      await pushPending().catch(() => {});
-    });
-
-    if(gf.auth.currentUser){
-      subscribe();
-      pushPending().catch(() => {});
-    }
-
-    /*
-     * 삭제 버튼 등에서 saveData가 아닌 직접 localStorage를 건드리는
-     * 기존 코드가 있더라도 탭 포커스 복귀 시에는 pending만 재전송합니다.
-     */
-    window.addEventListener('online', () => {
-      pushPending().catch(() => {});
-      if(gf.auth.currentUser) subscribe();
-    });
-
-    console.log('[GNP v14] 안전제안 단일 Firebase 저장/실시간 bridge 설치');
-    return true;
-  }
-
-  let attempts = 0;
-  const timer = setInterval(() => {
-    if(install() || ++attempts > 200){
-      clearInterval(timer);
-    }
-  }, 100);
-
-})();
-</script>
-
-
-
 <!-- FINAL SAFETY PROPOSAL DELETE + DETAIL STATUS PATCH v15
      - 삭제 시 Firestore 문서도 즉시 삭제되도록 연결
      - 전체보기 모달의 '조치' 입력칸을 안전제안관리의 상태 드롭다운으로 변경
@@ -15385,61 +15064,423 @@ import {
 })();
 </script>
 
-<script type="module" id="gnp-ai1-delete-firebase-v15">
-import { deleteDoc, doc } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+
+
+<!-- FINAL UNIFIED SAFETY PROPOSAL SYNC v16
+     PC ↔ PC / PC ↔ Mobile / Mobile ↔ Mobile
+     - Firestore safetyProposals 단일 실시간 구독
+     - 작성 저장은 저장 완료 전에 해당 문서를 Firebase에 await
+     - 결재/평가/상태변경/수정/삭제는 변경된 문서만 즉시 Firestore 저장
+     - 로그아웃/재로그인 시 pending 변경 자동 재전송
+     - 다른 기능은 변경하지 않음
+-->
+<script type="module" id="gnp-unified-proposal-sync-v16">
+import {
+  collection,
+  doc,
+  setDoc,
+  deleteDoc,
+  onSnapshot,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 
 (function(){
   'use strict';
 
+  const KEY = 'gnp_ai1_proposals';
+  const PENDING_KEY = 'gnp_ai1_proposals_pending_v16';
   const COL = 'safetyProposals';
+
   let installed = false;
+  let snapshotStop = null;
+  let authStop = null;
+
+  const queues = new Map();
+
+  const clone = rows => {
+    try { return JSON.parse(JSON.stringify(Array.isArray(rows) ? rows : [])); }
+    catch { return []; }
+  };
+
+  const idOf = row => String(row?.id || '').trim();
+
+  const readLocal = () => {
+    try {
+      const rows = JSON.parse(localStorage.getItem(KEY) || '[]');
+      return Array.isArray(rows) ? rows : [];
+    } catch { return []; }
+  };
+
+  const writeLocal = rows => {
+    try { localStorage.setItem(KEY, JSON.stringify(rows || [])); }
+    catch(e){ console.warn('[GNP v16] local write failed', e); }
+  };
+
+  const readPending = () => {
+    try {
+      const x = JSON.parse(localStorage.getItem(PENDING_KEY) || '{}');
+      return x && typeof x === 'object' ? x : {};
+    } catch { return {}; }
+  };
+
+  const writePending = p => {
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify(p || {})); }
+    catch(e){ console.warn('[GNP v16] pending write failed', e); }
+  };
+
+  const clean = row => {
+    const out = { ...(row || {}) };
+    Object.keys(out).forEach(k => {
+      if(out[k] === undefined) delete out[k];
+    });
+    return out;
+  };
+
+  function diffIds(previous, next){
+    const p = new Map();
+    const n = new Map();
+
+    clone(previous).forEach(row => {
+      const id = idOf(row);
+      if(id) p.set(id, row);
+    });
+
+    clone(next).forEach(row => {
+      const id = idOf(row);
+      if(id) n.set(id, row);
+    });
+
+    const changed = [];
+    const deleted = [];
+
+    for(const [id,row] of n){
+      if(JSON.stringify(clean(p.get(id))) !== JSON.stringify(clean(row))){
+        changed.push(row);
+      }
+    }
+
+    for(const id of p.keys()){
+      if(!n.has(id)) deleted.push(id);
+    }
+
+    return { changed, deleted };
+  }
+
+  function enqueue(id, operation){
+    const previous = queues.get(id) || Promise.resolve();
+
+    const next = previous
+      .catch(() => {})
+      .then(operation)
+      .finally(() => {
+        if(queues.get(id) === next) queues.delete(id);
+      });
+
+    queues.set(id, next);
+    return next;
+  }
+
+  async function saveCloudRow(row){
+    const gf = window.gnpFirebase;
+    const user = gf?.auth?.currentUser;
+    const id = idOf(row);
+
+    if(!gf?.db || !user || !id){
+      throw new Error('FIREBASE_NOT_READY');
+    }
+
+    return enqueue(id, async () => {
+      await setDoc(
+        doc(gf.db, COL, id),
+        {
+          ...clean(row),
+          id,
+          _syncUpdatedAt: serverTimestamp(),
+          _syncUpdatedBy: user.uid
+        },
+        { merge: true }
+      );
+
+      const pending = readPending();
+      delete pending[id];
+      writePending(pending);
+
+      console.log('[GNP v16] 안전제안 즉시 저장:', id);
+      return true;
+    });
+  }
+
+  async function removeCloudRow(id){
+    const gf = window.gnpFirebase;
+    const user = gf?.auth?.currentUser;
+    id = String(id || '').trim();
+
+    if(!gf?.db || !user || !id){
+      throw new Error('FIREBASE_NOT_READY');
+    }
+
+    return enqueue(id, async () => {
+      await deleteDoc(doc(gf.db, COL, id));
+
+      const pending = readPending();
+      delete pending[id];
+      writePending(pending);
+
+      console.log('[GNP v16] 안전제안 즉시 삭제:', id);
+      return true;
+    });
+  }
+
+  async function commitRows(previous, next){
+    const gf = window.gnpFirebase;
+    if(!gf?.db || !gf?.auth?.currentUser){
+      const pending = readPending();
+      const { changed, deleted } = diffIds(previous, next);
+
+      changed.forEach(row => {
+        const id = idOf(row);
+        if(id) pending[id] = { op:'set', row:clean(row) };
+      });
+
+      deleted.forEach(id => {
+        pending[id] = { op:'delete' };
+      });
+
+      writePending(pending);
+      return false;
+    }
+
+    const { changed, deleted } = diffIds(previous, next);
+
+    const jobs = [];
+
+    changed.forEach(row => {
+      const id = idOf(row);
+      if(!id) return;
+
+      const pending = readPending();
+      pending[id] = { op:'set', row:clean(row) };
+      writePending(pending);
+
+      jobs.push(
+        saveCloudRow(row).catch(error => {
+          console.error('[GNP v16] 저장 실패:', id, error?.code || error?.message || error);
+          return false;
+        })
+      );
+    });
+
+    deleted.forEach(id => {
+      const pending = readPending();
+      pending[id] = { op:'delete' };
+      writePending(pending);
+
+      jobs.push(
+        removeCloudRow(id).catch(error => {
+          console.error('[GNP v16] 삭제 실패:', id, error?.code || error?.message || error);
+          return false;
+        })
+      );
+    });
+
+    await Promise.all(jobs);
+    return true;
+  }
+
+  /*
+   * 신규 안전제안 저장 함수는 이 함수를 await합니다.
+   * 따라서 "저장 완료" 알림이 나오기 전에 Firebase setDoc이 끝납니다.
+   */
+  window.__gnpSaveProposalsToCloud = async function(rows, preferredId){
+    const current = readLocal();
+    const next = clone(rows);
+
+    /*
+     * current와 next가 이미 같아진 경우에도 preferredId가 있으면
+     * 해당 문서를 한 번 명시적으로 서버 저장합니다.
+     */
+    if(preferredId){
+      const row = next.find(x => String(x.id) === String(preferredId));
+      if(row) {
+        const gf = window.gnpFirebase;
+        if(gf?.db && gf?.auth?.currentUser){
+          const pending = readPending();
+          pending[String(preferredId)] = { op:'set', row:clean(row) };
+          writePending(pending);
+          return saveCloudRow(row);
+        }
+      }
+    }
+
+    return commitRows(current, next);
+  };
+
+  function mergeSnapshot(cloudRows){
+    const pending = readPending();
+    const map = new Map();
+
+    cloudRows.forEach(row => {
+      const id = idOf(row);
+      if(id) map.set(id, row);
+    });
+
+    /*
+     * 아직 Firebase 저장이 완료되지 않은 로컬 변경은
+     * 다른 기기의 오래된 snapshot이 와도 덮어쓰지 않습니다.
+     */
+    Object.entries(pending).forEach(([id, change]) => {
+      if(change?.op === 'set') map.set(id, change.row);
+      if(change?.op === 'delete') map.delete(id);
+    });
+
+    return [...map.values()];
+  }
+
+  function refresh(){
+    try { window.app?.ai1?.render?.(); } catch(_) {}
+  }
+
+  function subscribe(){
+    const gf = window.gnpFirebase;
+    if(!gf?.db || !gf?.auth?.currentUser) return;
+
+    if(snapshotStop){
+      try { snapshotStop(); } catch(_) {}
+      snapshotStop = null;
+    }
+
+    snapshotStop = onSnapshot(
+      collection(gf.db, COL),
+      snapshot => {
+        const cloudRows = snapshot.docs.map(s => {
+          const data = s.data() || {};
+          return { ...data, id:String(data.id || s.id) };
+        }).filter(r => idOf(r));
+
+        const merged = mergeSnapshot(cloudRows);
+
+        writeLocal(merged);
+        refresh();
+
+        console.log('[GNP v16] Firestore realtime:', merged.length, '건');
+      },
+      error => {
+        console.error(
+          '[GNP v16] Firestore realtime listener 오류:',
+          error?.code || error?.message || error
+        );
+      }
+    );
+  }
+
+  async function flushPending(){
+    const gf = window.gnpFirebase;
+    if(!gf?.db || !gf?.auth?.currentUser) return;
+
+    const pending = readPending();
+
+    for(const [id, change] of Object.entries(pending)){
+      if(change?.op === 'delete'){
+        try { await removeCloudRow(id); }
+        catch(e){ console.error('[GNP v16] pending delete failed:', id, e); }
+      } else if(change?.op === 'set' && change.row){
+        try { await saveCloudRow({ ...change.row, id }); }
+        catch(e){ console.error('[GNP v16] pending save failed:', id, e); }
+      }
+    }
+  }
 
   function install(){
-    const ai = window.app?.ai1;
+    const app = window.app;
     const gf = window.gnpFirebase;
 
-    if(!ai || !gf?.db || !gf?.auth) return false;
-    if(typeof ai.remove !== 'function') return false;
+    if(!app?.ai1 || typeof app.ai1.saveData !== 'function') return false;
+    if(!gf?.db || !gf?.auth) return false;
     if(installed) return true;
 
     installed = true;
 
-    const originalRemove = ai.remove.bind(ai);
+    const originalGetData = typeof app.ai1.getData === 'function'
+      ? app.ai1.getData.bind(app.ai1)
+      : readLocal;
 
-    /*
-     * 기존 삭제 UI/확인창/render 기능은 그대로 실행하고,
-     * 삭제된 ID에 해당하는 Firestore 문서만 즉시 삭제합니다.
-     */
-    ai.remove = async function(id){
-      const result = originalRemove(id);
+    const originalSaveData = app.ai1.saveData.bind(app.ai1);
 
-      try {
-        const uid = gf.auth.currentUser?.uid;
-        if(uid && id){
-          await deleteDoc(doc(gf.db, COL, String(id)));
-          console.log('[GNP v15] 안전제안 Firestore 즉시 삭제:', id);
-        }
-      } catch(error){
-        console.error(
-          '[GNP v15] 안전제안 Firestore 삭제 실패:',
-          error?.code || error?.message || error
-        );
-        alert('로컬에서는 삭제되었지만 서버 연동 삭제에 실패했습니다. 인터넷 연결을 확인해 주세요.');
-      }
+    app.ai1.getData = function(){
+      return readLocal();
+    };
+
+    app.ai1.saveData = function(rows){
+      const previous = clone(originalGetData());
+      const next = clone(rows);
+
+      const result = originalSaveData(next);
+
+      const pending = readPending();
+      const { changed, deleted } = diffIds(previous, next);
+
+      changed.forEach(row => {
+        const id = idOf(row);
+        if(id) pending[id] = { op:'set', row:clean(row) };
+      });
+
+      deleted.forEach(id => {
+        pending[id] = { op:'delete' };
+      });
+
+      writePending(pending);
+
+      /*
+       * 결재/평가/상태변경/삭제는 변경된 문서만 즉시 전송합니다.
+       * 기존 호출부의 동작은 그대로 유지합니다.
+       */
+      commitRows(previous, next).catch(e => {
+        console.error('[GNP v16] saveData cloud commit failed:', e);
+      });
 
       return result;
     };
 
-    console.log('[GNP v15] 안전제안 삭제 Firebase 연동 완료');
+    /*
+     * 기존 모듈이 만들어 둔 저장 함수에서 신규 작성 시 await하는 함수입니다.
+     */
+    window.__gnpSaveProposalsToCloudReady = true;
+
+    authStop = onAuthStateChanged(gf.auth, async user => {
+      if(snapshotStop){
+        try { snapshotStop(); } catch(_) {}
+        snapshotStop = null;
+      }
+
+      if(!user) return;
+
+      subscribe();
+      await flushPending();
+    });
+
+    if(gf.auth.currentUser){
+      subscribe();
+      flushPending().catch(() => {});
+    }
+
+    window.addEventListener('online', () => {
+      if(gf.auth.currentUser){
+        subscribe();
+        flushPending().catch(() => {});
+      }
+    });
+
     return true;
   }
 
-  let tries = 0;
+  let attempts = 0;
   const timer = setInterval(() => {
-    if(install() || ++tries > 200){
+    if(install() || ++attempts > 200){
       clearInterval(timer);
     }
   }, 100);
+
 })();
 </script>
 
