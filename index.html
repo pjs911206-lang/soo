@@ -14569,172 +14569,7 @@ const app = {
 <!-- FINAL DATA SYNC ONLY: preserve latest UI, synchronize proposals through Firebase -->
 
 <!-- FINAL ROLE PERSISTENCE ONLY: preserve latest UI and accept 임원 as a valid role -->
-<script type="module" id="latest-version-executive-role-fix">
-import { collection, getDocs, setDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
-(function(){
-  const VALID=["반원","반장","팀장","HSE","과장","대리","부장","사원","조장","차장","파트장","임원"];
-  const wait=(fn)=>new Promise(resolve=>{let n=0;const t=()=>{try{if(fn())return resolve(true)}catch(e){}if(++n>100)return resolve(false);setTimeout(t,150)};t()});
-  async function sync(){
-    const db=window.gnpFirebase?.db, app=window.app;
-    if(!db||!app?.db?.getUsers)return;
-    const users=app.db.getUsers()||[];
-    const snap=await getDocs(collection(db,"users"));
-    const byLegacy=new Map(snap.docs.map(d=>[String(d.data()?.legacyId||d.data()?.id||""),d]));
-    for(const u of users){
-      if(!u?.id||u.id==="admin")continue;
-      const role=String(u.role||"반원");
-      if(!VALID.includes(role))continue;
-      const d=byLegacy.get(String(u.id));
-      if(!d)continue;
-      await setDoc(d.ref,{legacyId:String(u.id),name:String(u.name||u.id),team:String(u.team||"미지정"),role,active:u.active!==false,updatedAt:serverTimestamp()},{merge:true});
-    }
-  }
-  wait(()=>window.gnpFirebase?.db&&window.app?.db?.getUsers).then(ok=>{if(ok)sync().catch(console.warn)});
-})();
-</script>
-
-
-
 <!-- FINAL FIX: 지정 임원 4명 역할 강제 저장/유지 -->
-<script type="module" id="fixed-executive-four-role">
-import { collection, getDocs, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
-
-(function(){
-  const EXECUTIVES = new Set(["양영훈","채일식","박경원","공동화"]);
-  const VALID = ["반원","반장","팀장","HSE","과장","대리","부장","사원","조장","차장","파트장","임원"];
-  const wait = (fn) => new Promise(resolve => {
-    let n = 0;
-    const tick = () => {
-      try { if (fn()) return resolve(true); } catch(e) {}
-      if (++n > 120) return resolve(false);
-      setTimeout(tick, 150);
-    };
-    tick();
-  });
-
-  function forceLocalExecutives(){
-    const app = window.app;
-    if (!app?.db?.getUsers || !app?.db?.saveUsers) return false;
-    const rows = app.db.getUsers() || [];
-    let changed = false;
-    rows.forEach(u => {
-      if (!u || !EXECUTIVES.has(String(u.id || u.name || ""))) return;
-      if (u.role !== "임원") { u.role = "임원"; changed = true; }
-    });
-    if (changed) app.db.saveUsers(rows);
-    return true;
-  }
-
-  async function forceCloudExecutives(){
-    const app = window.app;
-    const db = window.gnpFirebase?.db;
-    if (!db || !app?.db?.getUsers) return;
-    const rows = app.db.getUsers() || [];
-    const snap = await getDocs(collection(db, "users"));
-    const byLegacy = new Map(snap.docs.map(d => [String(d.data()?.legacyId || d.data()?.id || d.id || ""), d]));
-
-    for (const name of EXECUTIVES) {
-      const local = rows.find(u => String(u?.id || u?.name || "") === name);
-      const docSnap = byLegacy.get(name);
-      if (!docSnap) continue;
-      await setDoc(docSnap.ref, {
-        legacyId: name,
-        id: name,
-        name: local?.name || name,
-        team: local?.team || String(docSnap.data()?.team || "미지정"),
-        role: "임원",
-        active: local?.active !== false,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-    }
-  }
-
-  function patchNormalize(){
-    const app = window.app;
-    if (!app?.auth?.normalizeUsers) return false;
-    const previous = app.auth.normalizeUsers;
-    if (previous.__fixedExecutiveFour) return true;
-
-    const fixed = function(items){
-      const rows = previous.call(this, items) || [];
-      let changed = false;
-      rows.forEach(u => {
-        if (!u) return;
-        if (EXECUTIVES.has(String(u.id || u.name || "")) && u.role !== "임원") {
-          u.role = "임원";
-          changed = true;
-        }
-      });
-      if (changed && app.db?.saveUsers) app.db.saveUsers(rows);
-      return rows;
-    };
-    fixed.__fixedExecutiveFour = true;
-    app.auth.normalizeUsers = fixed;
-    return true;
-  }
-
-  function patchRoleSelects(){
-    const app = window.app;
-    if (!app?.db?.getUsers) return;
-    const rows = app.db.getUsers() || [];
-    document.querySelectorAll('select[id^="spr-role-"]').forEach(select => {
-      const id = select.id.slice('spr-role-'.length);
-      if (!EXECUTIVES.has(id)) return;
-      const options = VALID.map(r => `<option value="${r}" ${r === "임원" ? "selected" : ""}>${r}</option>`).join("");
-      select.innerHTML = options;
-      select.value = "임원";
-      select.dataset.fixedExecutiveFour = "true";
-    });
-  }
-
-  function patchSaveButton(){
-    const app = window.app;
-    if (!app?.db?.saveUsers) return false;
-    window.safetyRole = window.safetyRole || {};
-    const oldSave = window.safetyRole.saveUser;
-    if (oldSave && oldSave.__fixedExecutiveFour) return true;
-
-    const save = function(id){
-      if (EXECUTIVES.has(String(id))) {
-        if (app.auth?.currentUser?.id !== "admin") {
-          return alert("권한 설정은 전체 관리자(admin)만 변경할 수 있습니다.");
-        }
-        const rows = app.db.getUsers() || [];
-        const target = rows.find(u => String(u?.id || "") === String(id));
-        if (!target) return alert("사용자 정보를 찾을 수 없습니다.");
-        target.role = "임원";
-        app.db.saveUsers(rows);
-        forceCloudExecutives().catch(console.warn);
-        if (app.auth.currentUser?.id === id) app.auth.currentUser = target;
-        try { if (typeof window.renderPermissionV3 === "function") window.renderPermissionV3(); } catch(e) {}
-        patchRoleSelects();
-        return alert("회원 권한을 저장했습니다. (임원)");
-      }
-      if (typeof oldSave === "function") return oldSave.apply(this, arguments);
-    };
-    save.__fixedExecutiveFour = true;
-    window.safetyRole.saveUser = save;
-    return true;
-  }
-
-  async function start(){
-    patchNormalize();
-    forceLocalExecutives();
-    patchSaveButton();
-    patchRoleSelects();
-    try { await forceCloudExecutives(); } catch(e) { console.warn("지정 임원 Firebase 저장 실패", e); }
-    forceLocalExecutives();
-    patchRoleSelects();
-  }
-
-  wait(() => window.app?.auth?.normalizeUsers && window.app?.db?.getUsers && window.app?.db?.saveUsers)
-    .then(ok => { if (ok) start().catch(console.warn); });
-
-  /* body 전체 MutationObserver 제거: 로그인/메뉴 DOM 변경마다 권한 정규화를 반복하지 않습니다. */
-})();
-</script>
-
-
 <script id="absolute-executive-four-fix">
 (function(){
   const EXEC = new Set(["양영훈","채일식","박경원","공동화"]);
@@ -15076,12 +14911,14 @@ import { collection, getDocs, setDoc, serverTimestamp } from "https://www.gstati
 -->
 
 
-<!-- FINAL BIDIRECTIONAL CLOUD SYNC v17
-     PC ↔ Mobile / PC ↔ PC / Mobile ↔ Mobile
-     Scope: users(permission/team/role) + safetyProposals.
-     Other application functions are intentionally left intact.
+<!-- FINAL SINGLE-SOURCE SYNC v18
+     Shared Firestore source of truth:
+       users          = team / role / modules / active / approvalPermission
+       safetyProposals = create / edit / score / approval / status / delete
+     LocalStorage is a local cache only.
+     No automatic local-cache -> cloud overwrite on login/startup.
 -->
-<script type="module" id="gnp-bidirectional-sync-v17">
+<script type="module" id="gnp-single-source-sync-v18">
 import {
   collection,
   doc,
@@ -15097,391 +14934,437 @@ import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/f
 
   const USER_COL = 'users';
   const PROPOSAL_COL = 'safetyProposals';
-  const USER_CACHE_KEY = 'gnp_users';
-  const PROPOSAL_CACHE_KEY = 'gnp_ai1_proposals';
-  const PENDING_USERS_KEY = 'gnp_users_pending_v17';
+  const USER_KEY = 'gnp_users';
+  const PROPOSAL_KEY = 'gnp_ai1_proposals';
 
   let installed = false;
   let userUnsub = null;
   let proposalUnsub = null;
-  let userAuthUnsub = null;
-  let userDocsByLegacyId = new Map();
-  let proposalDocs = new Map();
+  let authUnsub = null;
+  let userDocIdByLegacy = new Map();
+
   const userQueues = new Map();
   const proposalQueues = new Map();
 
   const clone = value => {
-    try { return JSON.parse(JSON.stringify(value)); } catch { return null; }
+    try { return JSON.parse(JSON.stringify(value)); }
+    catch { return null; }
   };
 
-  const legacyId = user => String(user?.id || user?.legacyId || user?.name || '').trim();
-  const proposalId = row => String(row?.id || '').trim();
-
-  function rawUsers(){
-    try {
-      const rows = JSON.parse(localStorage.getItem(USER_CACHE_KEY) || '[]');
-      return Array.isArray(rows) ? rows : [];
-    } catch { return []; }
-  }
-
-  function rawProposals(){
-    try {
-      const rows = JSON.parse(localStorage.getItem(PROPOSAL_CACHE_KEY) || '[]');
-      return Array.isArray(rows) ? rows : [];
-    } catch { return []; }
-  }
-
-  function saveUsersLocal(rows){
-    try { localStorage.setItem(USER_CACHE_KEY, JSON.stringify(rows || [])); }
-    catch(e){ console.warn('[GNP v17] user local cache save failed', e); }
-  }
-
-  function saveProposalsLocal(rows){
-    try { localStorage.setItem(PROPOSAL_CACHE_KEY, JSON.stringify(rows || [])); }
-    catch(e){ console.warn('[GNP v17] proposal local cache save failed', e); }
-  }
-
-  function clean(value){
+  const clean = value => {
     const out = { ...(value || {}) };
     Object.keys(out).forEach(k => {
       if(out[k] === undefined) delete out[k];
     });
     return out;
-  }
+  };
 
-  function mergeCloudUserIntoLocal(local, cloud){
-    const id = legacyId(cloud);
-    if(!id) return local;
+  const userId = u =>
+    String(u?.id || u?.legacyId || u?.name || '').trim();
 
-    const row = { ...(local || {}) };
+  const proposalId = p =>
+    String(p?.id || '').trim();
 
-    /*
-     * 비밀번호는 브라우저의 기존 로그인 데이터를 유지합니다.
-     * 공유되어야 하는 권한/부서/모듈/활성 상태는 Firestore를 기준으로 합니다.
-     */
-    if(cloud.name != null) row.name = cloud.name;
-    if(cloud.team != null) row.team = cloud.team;
-    if(cloud.role != null) row.role = cloud.role;
-    if(Array.isArray(cloud.modules)) row.modules = cloud.modules;
-    if(cloud.active != null) row.active = cloud.active;
-    if(cloud.isMaster != null) row.isMaster = cloud.isMaster;
-    if(cloud.firebaseUid != null) row.firebaseUid = cloud.firebaseUid;
-
-    return row;
-  }
-
-  function mergeUsers(cloudRows){
-    const local = rawUsers();
-    const localMap = new Map();
-
-    local.forEach(u => {
-      const id = legacyId(u);
-      if(id) localMap.set(id, u);
-    });
-
-    cloudRows.forEach(cloud => {
-      const id = legacyId(cloud);
-      if(!id) return;
-      const merged = mergeCloudUserIntoLocal(localMap.get(id), cloud);
-      localMap.set(id, merged);
-      userDocsByLegacyId.set(id, cloud.__docId || '');
-    });
-
-    return [...localMap.values()];
-  }
-
-  function refreshUserUI(){
+  function readUsers(){
     try {
-      const me = window.app?.auth?.currentUser;
-      if(me){
-        const id = legacyId(me);
-        const latest = rawUsers().find(u => legacyId(u) === id);
-        if(latest){
-          window.app.auth.currentUser = latest;
-        }
-      }
-    } catch(_) {}
-
-    try {
-      if(typeof window.renderPermissionV3 === 'function') window.renderPermissionV3();
-    } catch(_) {}
-
-    try {
-      window.app?.render?.();
-    } catch(_) {}
-
-    try {
-      const title = document.getElementById('view-title')?.textContent || '';
-      if(title.includes('권한')){
-        window.app?.router?.go?.('PERM-V3', '사용자 권한 관리');
-      }
-    } catch(_) {}
+      const rows = JSON.parse(localStorage.getItem(USER_KEY) || '[]');
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
   }
 
-  function refreshProposalUI(){
-    try { window.app?.ai1?.render?.(); } catch(_) {}
+  function writeUsers(rows){
+    localStorage.setItem(
+      USER_KEY,
+      JSON.stringify(Array.isArray(rows) ? rows : [])
+    );
   }
 
-  function userWriteTarget(id, currentUid){
-    const existing = userDocsByLegacyId.get(id);
-    if(existing) return existing;
-    return currentUid || id;
+  function readProposals(){
+    try {
+      const rows = JSON.parse(localStorage.getItem(PROPOSAL_KEY) || '[]');
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
   }
 
-  function enqueueUserWrite(id, operation){
-    const previous = userQueues.get(id) || Promise.resolve();
+  function writeProposals(rows){
+    localStorage.setItem(
+      PROPOSAL_KEY,
+      JSON.stringify(Array.isArray(rows) ? rows : [])
+    );
+  }
+
+  function enqueue(map, id, operation){
+    const previous = map.get(id) || Promise.resolve();
 
     const next = previous
       .catch(() => {})
       .then(operation)
       .finally(() => {
-        if(userQueues.get(id) === next) userQueues.delete(id);
+        if(map.get(id) === next) map.delete(id);
       });
 
-    userQueues.set(id, next);
+    map.set(id, next);
     return next;
   }
 
-  async function writeUserCloud(user){
-    const gf = window.gnpFirebase;
-    const authUser = gf?.auth?.currentUser;
-    const id = legacyId(user);
-
-    if(!gf?.db || !authUser || !id) return false;
-
-    return enqueueUserWrite(id, async () => {
-      const target = userWriteTarget(id, authUser.uid);
-      const payload = {
-        legacyId: id,
-        id,
-        name: String(user.name || id),
-        team: String(user.team || '미지정'),
-        role: String(user.role || '반원'),
-        modules: Array.isArray(user.modules) ? user.modules : [],
-        active: user.active !== false,
-        isMaster: id === 'admin',
-        firebaseUid: String(user.firebaseUid || target),
-        schemaVersion: 1,
-        _syncUpdatedAt: serverTimestamp(),
-        _syncUpdatedBy: authUser.uid
-      };
-
-      await setDoc(doc(gf.db, USER_COL, target), payload, { merge:true });
-
-      const pending = JSON.parse(localStorage.getItem(PENDING_USERS_KEY) || '{}');
-      delete pending[id];
-      localStorage.setItem(PENDING_USERS_KEY, JSON.stringify(pending));
-
-      console.log('[GNP v17] 사용자 권한/팀 즉시 Firebase 저장:', id);
-      return true;
-    });
-  }
-
-  function queueUserRows(previous, next){
-    const pm = new Map();
-    clone(previous || []).forEach(u => {
-      const id = legacyId(u);
-      if(id) pm.set(id, u);
-    });
-
-    (next || []).forEach(u => {
-      const id = legacyId(u);
-      if(!id) return;
-
-      if(JSON.stringify(clean(pm.get(id))) !== JSON.stringify(clean(u))){
-        const pending = (() => {
-          try { return JSON.parse(localStorage.getItem(PENDING_USERS_KEY) || '{}'); }
-          catch { return {}; }
-        })();
-        pending[id] = clean(u);
-        localStorage.setItem(PENDING_USERS_KEY, JSON.stringify(pending));
-        writeUserCloud(u).catch(e => console.error('[GNP v17] user write failed', id, e));
+  function refreshUserScreen(){
+    try {
+      const me = window.app?.auth?.currentUser;
+      if(me){
+        const latest = readUsers().find(u => userId(u) === userId(me));
+        if(latest) window.app.auth.currentUser = latest;
       }
-    });
+    } catch(_){}
+
+    try { window.renderPermissionV3?.(); } catch(_){}
+    try { window.permissionControl?.filter?.(); } catch(_){}
+    try { window.app?.auth?.refreshPanel?.(); } catch(_){}
   }
 
-  function queueProposalRows(previous, next){
-    const pm = new Map();
-    clone(previous || []).forEach(r => {
-      const id = proposalId(r);
-      if(id) pm.set(id, r);
-    });
-
-    const nm = new Map();
-    clone(next || []).forEach(r => {
-      const id = proposalId(r);
-      if(id) nm.set(id, r);
-    });
-
-    for(const [id,row] of nm){
-      if(JSON.stringify(clean(pm.get(id))) !== JSON.stringify(clean(row))){
-        writeProposalCloud(row).catch(e => {
-          console.error('[GNP v17] proposal write failed', id, e);
-        });
-      }
-    }
-
-    for(const id of pm.keys()){
-      if(!nm.has(id)){
-        deleteProposalCloud(id).catch(e => {
-          console.error('[GNP v17] proposal delete failed', id, e);
-        });
-      }
-    }
+  function refreshProposalScreen(){
+    try { window.app?.ai1?.render?.(); } catch(_){}
   }
 
-  async function writeProposalCloud(row){
-    const gf = window.gnpFirebase;
-    const uid = gf?.auth?.currentUser?.uid;
-    const id = proposalId(row);
-
-    if(!gf?.db || !uid || !id) return false;
-
-    const previous = proposalQueues.get(id) || Promise.resolve();
-
-    const next = previous
-      .catch(() => {})
-      .then(() => setDoc(
-        doc(gf.db, PROPOSAL_COL, id),
-        {
-          ...clean(row),
-          id,
-          _syncUpdatedAt: serverTimestamp(),
-          _syncUpdatedBy: uid
-        },
-        { merge:true }
-      ))
-      .then(() => {
-        console.log('[GNP v17] 안전제안 즉시 Firebase 저장:', id);
-        return true;
-      });
-
-    proposalQueues.set(
-      id,
-      next.finally(() => {
-        if(proposalQueues.get(id) === next) proposalQueues.delete(id);
-      })
-    );
-
-    return next;
-  }
-
-  async function deleteProposalCloud(id){
-    const gf = window.gnpFirebase;
-    const uid = gf?.auth?.currentUser?.uid;
-    id = String(id || '').trim();
-    if(!gf?.db || !uid || !id) return false;
-
-    const previous = proposalQueues.get(id) || Promise.resolve();
-
-    const next = previous
-      .catch(() => {})
-      .then(() => deleteDoc(doc(gf.db, PROPOSAL_COL, id)))
-      .then(() => {
-        console.log('[GNP v17] 안전제안 즉시 Firebase 삭제:', id);
-        return true;
-      });
-
-    proposalQueues.set(
-      id,
-      next.finally(() => {
-        if(proposalQueues.get(id) === next) proposalQueues.delete(id);
-      })
-    );
-
-    return next;
-  }
-
-  function startUserRealtime(){
+  function startUsersListener(){
     const gf = window.gnpFirebase;
     if(!gf?.db || !gf?.auth?.currentUser) return;
 
     if(userUnsub){
-      try { userUnsub(); } catch(_) {}
+      try { userUnsub(); } catch(_){}
       userUnsub = null;
     }
 
     userUnsub = onSnapshot(
       collection(gf.db, USER_COL),
-      snap => {
-        const cloud = snap.docs.map(s => ({
+      snapshot => {
+        const cloudUsers = snapshot.docs.map(s => ({
           ...(s.data() || {}),
           __docId: s.id
-        })).filter(u => legacyId(u));
+        })).filter(u => userId(u));
 
-        userDocsByLegacyId = new Map(
-          cloud.map(u => [legacyId(u), u.__docId])
+        userDocIdByLegacy = new Map(
+          cloudUsers.map(u => [userId(u), u.__docId])
         );
 
-        const merged = mergeUsers(cloud);
-        saveUsersLocal(merged);
+        const localMap = new Map(
+          readUsers().map(u => [userId(u), u])
+        );
 
-        refreshUserUI();
+        /*
+         * Firestore is authoritative for shared account state.
+         * Keep password only from local cache because this app's existing
+         * login flow stores it locally.
+         */
+        const merged = cloudUsers.map(cloud => {
+          const local = localMap.get(userId(cloud)) || {};
+          return {
+            ...local,
+            ...clean(cloud),
+            id: userId(cloud),
+            name: String(cloud.name || local.name || userId(cloud)),
+            team: String(cloud.team || local.team || ''),
+            role: String(cloud.role || local.role || 'USER')
+          };
+        });
 
-        console.log('[GNP v17] 사용자 권한/팀 실시간 반영:', merged.length, '명');
+        writeUsers(merged);
+        refreshUserScreen();
+
+        console.log('[GNP v18] users realtime:', merged.length);
       },
-      error => {
-        console.error(
-          '[GNP v17] users realtime listener 오류:',
-          error?.code || error?.message || error
-        );
-      }
+      error => console.error(
+        '[GNP v18] users onSnapshot error:',
+        error?.code || error?.message || error
+      )
     );
   }
 
-  function startProposalRealtime(){
+  function startProposalsListener(){
     const gf = window.gnpFirebase;
     if(!gf?.db || !gf?.auth?.currentUser) return;
 
     if(proposalUnsub){
-      try { proposalUnsub(); } catch(_) {}
+      try { proposalUnsub(); } catch(_){}
       proposalUnsub = null;
     }
 
     proposalUnsub = onSnapshot(
       collection(gf.db, PROPOSAL_COL),
-      snap => {
-        const cloud = snap.docs.map(s => ({
+      snapshot => {
+        const cloudRows = snapshot.docs.map(s => ({
           ...(s.data() || {}),
-          id:String(s.data()?.id || s.id)
-        })).filter(r => proposalId(r));
-
-        proposalDocs = new Map(cloud.map(r => [proposalId(r), r]));
+          id: String(s.data()?.id || s.id)
+        })).filter(p => proposalId(p));
 
         /*
-         * Firestore를 공용 원본으로 사용합니다.
-         * localStorage는 각 기기의 화면 캐시일 뿐입니다.
+         * Firestore is authoritative for the shared proposal list.
+         * A different PC/mobile therefore sees the same collection.
          */
-        saveProposalsLocal(cloud);
-        refreshProposalUI();
+        writeProposals(cloudRows);
+        refreshProposalScreen();
 
-        console.log('[GNP v17] 안전제안 실시간 반영:', cloud.length, '건');
+        console.log('[GNP v18] proposals realtime:', cloudRows.length);
       },
-      error => {
-        console.error(
-          '[GNP v17] safetyProposals realtime listener 오류:',
-          error?.code || error?.message || error
-        );
-      }
+      error => console.error(
+        '[GNP v18] safetyProposals onSnapshot error:',
+        error?.code || error?.message || error
+      )
     );
   }
 
-  async function flushPending(){
-    const pendingUsers = (() => {
-      try { return JSON.parse(localStorage.getItem(PENDING_USERS_KEY) || '{}'); }
-      catch { return {}; }
-    })();
+  function writeUserCloud(user){
+    const gf = window.gnpFirebase;
+    const uid = gf?.auth?.currentUser?.uid;
+    const id = userId(user);
 
-    for(const user of Object.values(pendingUsers)){
-      if(user) await writeUserCloud(user).catch(() => {});
+    if(!gf?.db || !uid || !id) {
+      return Promise.reject(new Error('Firebase 인증/DB가 준비되지 않았습니다.'));
     }
 
-    const rows = rawProposals();
-    const byId = new Map(rows.map(r => [proposalId(r), r]));
+    return enqueue(userQueues, id, async () => {
+      const docId = userDocIdByLegacy.get(id) || id;
 
-    for(const row of byId.values()){
-      await writeProposalCloud(row).catch(() => {});
+      await setDoc(
+        doc(gf.db, USER_COL, docId),
+        {
+          legacyId: id,
+          id,
+          name: String(user.name || id),
+          team: String(user.team || ''),
+          role: String(user.role || 'USER'),
+          modules: Array.isArray(user.modules) ? user.modules : [],
+          active: user.active !== false,
+          approvalPermission: !!user.approvalPermission,
+          updatedAt: serverTimestamp(),
+          updatedBy: uid
+        },
+        { merge: true }
+      );
+
+      userDocIdByLegacy.set(id, docId);
+      return true;
+    });
+  }
+
+  function writeProposalCloud(row){
+    const gf = window.gnpFirebase;
+    const uid = gf?.auth?.currentUser?.uid;
+    const id = proposalId(row);
+
+    if(!gf?.db || !uid || !id) {
+      return Promise.reject(new Error('Firebase 인증/DB가 준비되지 않았습니다.'));
     }
+
+    return enqueue(proposalQueues, id, async () => {
+      await setDoc(
+        doc(gf.db, PROPOSAL_COL, id),
+        {
+          ...clean(row),
+          id,
+          updatedAt: serverTimestamp(),
+          updatedBy: uid
+        },
+        { merge: true }
+      );
+      return true;
+    });
+  }
+
+  function deleteProposalCloud(id){
+    const gf = window.gnpFirebase;
+    const uid = gf?.auth?.currentUser?.uid;
+    id = String(id || '').trim();
+
+    if(!gf?.db || !uid || !id) {
+      return Promise.reject(new Error('Firebase 인증/DB가 준비되지 않았습니다.'));
+    }
+
+    return enqueue(proposalQueues, id, async () => {
+      await deleteDoc(doc(gf.db, PROPOSAL_COL, id));
+      return true;
+    });
+  }
+
+  function diffProposals(previousRows, nextRows){
+    const prev = new Map(
+      (clone(previousRows) || []).map(r => [proposalId(r), r]).filter(([id]) => id)
+    );
+    const next = new Map(
+      (clone(nextRows) || []).map(r => [proposalId(r), r]).filter(([id]) => id)
+    );
+
+    for(const [id,row] of next){
+      if(JSON.stringify(clean(prev.get(id))) !== JSON.stringify(clean(row))){
+        writeProposalCloud(row).catch(e =>
+          console.error('[GNP v18] proposal save failed:', id, e)
+        );
+      }
+    }
+
+    for(const id of prev.keys()){
+      if(!next.has(id)){
+        deleteProposalCloud(id).catch(e =>
+          console.error('[GNP v18] proposal delete failed:', id, e)
+        );
+      }
+    }
+  }
+
+  function diffUsers(previousRows, nextRows){
+    const prev = new Map(
+      (clone(previousRows) || []).map(u => [userId(u), u]).filter(([id]) => id)
+    );
+
+    (clone(nextRows) || []).forEach(user => {
+      const id = userId(user);
+      if(!id) return;
+
+      if(JSON.stringify(clean(prev.get(id))) !== JSON.stringify(clean(user))){
+        writeUserCloud(user).catch(e =>
+          console.error('[GNP v18] user save failed:', id, e)
+        );
+      }
+    });
+  }
+
+  function patchSaveUsers(){
+    const app = window.app;
+    if(!app?.db?.saveUsers || app.db.saveUsers.__v18) return false;
+
+    const original = app.db.saveUsers.bind(app.db);
+
+    app.db.saveUsers = function(rows){
+      const previous = readUsers();
+      const next = clone(rows) || [];
+
+      const result = original(next);
+      diffUsers(previous, next);
+
+      return result;
+    };
+
+    app.db.saveUsers.__v18 = true;
+    return true;
+  }
+
+  function patchProposalSaveData(){
+    const ai = window.app?.ai1;
+    if(!ai?.saveData || ai.saveData.__v18) return false;
+
+    const original = ai.saveData.bind(ai);
+
+    ai.saveData = function(rows){
+      const previous = readProposals();
+      const next = clone(rows) || [];
+
+      const result = original(next);
+      writeProposals(next);
+      diffProposals(previous, next);
+
+      return result;
+    };
+
+    ai.saveData.__v18 = true;
+    return true;
+  }
+
+  function patchDirectProposalSave(){
+    const ai = window.app?.ai1;
+    if(!ai?.save || ai.save.__v18) return false;
+
+    const original = ai.save.bind(ai);
+
+    /*
+     * The current create/edit flow writes directly through writeProposals().
+     * Keep that UI/function intact and synchronize the resulting complete list
+     * immediately after it finishes.
+     */
+    ai.save = async function(){
+      const before = readProposals();
+      const result = await original(...arguments);
+      const after = readProposals();
+
+      diffProposals(before, after);
+      return result;
+    };
+
+    ai.save.__v18 = true;
+    return true;
+  }
+
+  function patchDelete(){
+    const ai = window.app?.ai1;
+    if(!ai?.remove || ai.remove.__v18) return false;
+
+    const original = ai.remove.bind(ai);
+
+    ai.remove = async function(id){
+      const before = readProposals();
+
+      const result = original(id);
+
+      const exists = readProposals()
+        .some(row => proposalId(row) === String(id));
+
+      if(!exists && before.some(row => proposalId(row) === String(id))){
+        await deleteProposalCloud(id);
+      }
+
+      return result;
+    };
+
+    ai.remove.__v18 = true;
+    return true;
+  }
+
+  function patchNormalizeUsers(){
+    const auth = window.app?.auth;
+    if(!auth?.normalizeUsers || auth.normalizeUsers.__v18) return false;
+
+    const original = auth.normalizeUsers.bind(auth);
+
+    const validRoles = new Set([
+      'USER','MASTER','ADMIN',
+      '반원','반장','조장','팀장','파트장',
+      'HSE','과장','대리','부장','사원','차장','임원'
+    ]);
+
+    auth.normalizeUsers = function(items){
+      const input = clone(items) || [];
+      const normalized = original(items) || [];
+
+      const inputMap = new Map(
+        input.map(u => [userId(u), u]).filter(([id]) => id)
+      );
+
+      normalized.forEach(u => {
+        const src = inputMap.get(userId(u));
+        if(!src) return;
+
+        /*
+         * 원본 normalizeUsers가 비-MASTER를 USER로 바꾸는 문제를 막습니다.
+         * 실제 역할/팀은 Firestore에서 내려온 값을 유지합니다.
+         */
+        if(validRoles.has(String(src.role || ''))){
+          u.role = src.role;
+        }
+
+        if(src.team) u.team = src.team;
+        if(Array.isArray(src.modules)) u.modules = src.modules;
+        if(src.approvalPermission != null){
+          u.approvalPermission = !!src.approvalPermission;
+        }
+      });
+
+      return normalized;
+    };
+
+    auth.normalizeUsers.__v18 = true;
+    return true;
   }
 
   function install(){
@@ -15494,131 +15377,50 @@ import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/f
 
     installed = true;
 
-    /*
-     * 사용자 권한/부서 저장을 Firebase와 양방향으로 연결합니다.
-     * 기존 화면은 그대로 localStorage를 사용하지만 실제 공유 저장소는 Firestore입니다.
-     */
-    const rawGetUsers = app.db.getUsers.bind(app.db);
-    const rawSaveUsers = app.db.saveUsers.bind(app.db);
+    patchSaveUsers();
+    patchProposalSaveData();
+    patchDirectProposalSave();
+    patchDelete();
+    patchNormalizeUsers();
 
-    app.db.getUsers = function(){
-      const local = rawGetUsers() || [];
-      const cloudMap = new Map();
-
-      userDocsByLegacyId.forEach((_, id) => {
-        const cloud = userDocsByLegacyId.get(id);
-        if(cloud) cloudMap.set(id, cloud);
-      });
-
-      return local;
-    };
-
-    app.db.saveUsers = function(rows){
-      const previous = rawGetUsers() || [];
-      const result = rawSaveUsers(rows);
-
-      queueUserRows(previous, rows || []);
-      return result;
-    };
-
-    /*
-     * normalizeUsers는 원본에서 일반 사용자의 role을 USER로 강제합니다.
-     * 이 동작 때문에 Firebase에서 받은 반장/조장/팀장/임원 권한이
-     * 다시 반원/USER로 바뀌는 문제가 발생할 수 있으므로
-     * 유효한 역할은 그대로 보존하는 wrapper를 둡니다.
-     */
-    if(typeof app.auth.normalizeUsers === 'function' && !app.auth.normalizeUsers.__v17){
-      const oldNormalize = app.auth.normalizeUsers.bind(app.auth);
-
-      const VALID_ROLES = [
-        '반원','반장','조장','팀장','파트장','HSE',
-        '과장','대리','부장','사원','차장','임원','MASTER','USER'
-      ];
-
-      const normalized = function(items){
-        const originalRows = clone(items || []) || [];
-        const result = oldNormalize(items) || [];
-
-        const oldMap = new Map(
-          originalRows.map(u => [legacyId(u), u])
-        );
-
-        result.forEach(u => {
-          const id = legacyId(u);
-          const original = oldMap.get(id);
-
-          if(original && VALID_ROLES.includes(String(original.role || ''))){
-            u.role = original.role;
-            if(original.team) u.team = original.team;
-            if(Array.isArray(original.modules)) u.modules = original.modules;
-          }
-
-          const cloud = proposalDocs.get(id);
-          void cloud;
-        });
-
-        return result;
-      };
-
-      normalized.__v17 = true;
-      app.auth.normalizeUsers = normalized;
-    }
-
-    userAuthUnsub = onAuthStateChanged(gf.auth, user => {
-      if(!user){
-        if(userUnsub){ try { userUnsub(); } catch(_) {} userUnsub=null; }
-        if(proposalUnsub){ try { proposalUnsub(); } catch(_) {} proposalUnsub=null; }
-        return;
+    authUnsub = onAuthStateChanged(gf.auth, user => {
+      if(userUnsub){
+        try { userUnsub(); } catch(_){}
+        userUnsub = null;
       }
 
-      startUserRealtime();
-      startProposalRealtime();
-      flushPending().catch(e => console.warn('[GNP v17] pending flush failed', e));
+      if(proposalUnsub){
+        try { proposalUnsub(); } catch(_){}
+        proposalUnsub = null;
+      }
+
+      if(!user) return;
+
+      /*
+       * 로그인 성공 후 Firebase를 공용 원본으로 구독합니다.
+       */
+      startUsersListener();
+      startProposalsListener();
     });
 
     if(gf.auth.currentUser){
-      startUserRealtime();
-      startProposalRealtime();
-      flushPending().catch(e => console.warn('[GNP v17] initial pending flush failed', e));
+      startUsersListener();
+      startProposalsListener();
     }
 
-    /*
-     * 최종 app.ai1.saveData() 관문:
-     * 안전제안 작성/수정/결재/평가/상태변경/삭제 등 기존 코드가
-     * saveData()를 호출하면 변경분을 Firestore에 즉시 저장합니다.
-     */
-    if(typeof app.ai1.saveData === 'function' && !app.ai1.saveData.__v17){
-      const originalSaveData = app.ai1.saveData.bind(app.ai1);
-
-      const wrappedSaveData = function(rows){
-        const previous = rawProposals();
-        const next = clone(rows) || [];
-
-        const result = originalSaveData(next);
-
-        saveProposalsLocal(next);
-        queueProposalRows(previous, next);
-
-        return result;
-      };
-
-      wrappedSaveData.__v17 = true;
-      app.ai1.saveData = wrappedSaveData;
-    }
-
-    console.log('[GNP v17] PC↔모바일 양방향 실시간 동기화 활성화');
+    console.log('[GNP v18] PC↔PC / PC↔Mobile / Mobile↔Mobile sync active');
     return true;
   }
 
-  let tries = 0;
+  let attempts = 0;
   const timer = setInterval(() => {
     try {
-      if(install() || ++tries > 200){
+      if(install() || ++attempts > 200){
         clearInterval(timer);
       }
     } catch(e) {
-      console.error('[GNP v17] install error', e);
-      if(++tries > 200) clearInterval(timer);
+      console.error('[GNP v18] install error:', e);
+      if(++attempts > 200) clearInterval(timer);
     }
   }, 100);
 
