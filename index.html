@@ -155,27 +155,6 @@
     .ai1-photo-action-btn{height:38px;padding:0 5px;font-size:11px;gap:4px;}
   }
 </style>
-
-<script id="gnp-login-fail-open">
-(function(){
-  // Firebase/CDN 지연이 로그인 화면 자체를 가리는 것을 방지합니다.
-  function unlock(){
-    try{
-      const layer=document.getElementById('auth-layer');
-      const login=document.getElementById('login-box');
-      if(layer && !layer.classList.contains('hidden')){
-        layer.style.display='flex';
-        layer.style.visibility='visible';
-        layer.style.opacity='1';
-      }
-      if(login){ login.classList.remove('hidden'); login.style.display='block'; }
-    }catch(_){}
-  }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',unlock,{once:true}); else unlock();
-  setTimeout(unlock,1000);
-  setTimeout(unlock,3000);
-})();
-</script>
 </head>
 <body class="h-screen flex overflow-hidden">
 <div id="auth-layer" class="fixed inset-0 z-[100] gnp-blue flex items-center justify-center">
@@ -10304,7 +10283,7 @@ const app = {
   app.auth.normalizeUsers = function(items) {
     const list = Array.isArray(items) ? items : [];
     const validTeams = applyTeams();
-    const validRoles = ['반원','반장','팀장','HSE','과장','대리','부장','사원','조장','차장','파트장','임원'];
+    const validRoles = ['반원','반장','팀장','HSE'];
     let changed = false;
     let root = list.find(u => u && u.id === 'admin');
     if(!root) {
@@ -13746,21 +13725,14 @@ const app = {
     return { firebaseUid: firebaseUser.uid, ...snap.data() };
   }
 
-  function withTimeout(promise, ms, message = "Firebase 응답 시간이 초과되었습니다.") {
-    return Promise.race([
-      promise,
-      new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error(message), { code: "timeout" })), ms))
-    ]);
-  }
-
   async function firebaseLogin() {
     const id = document.getElementById("login-id")?.value.trim();
     const pw = document.getElementById("login-pw")?.value || "";
     if (!id || !pw) throw Object.assign(new Error("로그인 ID와 비밀번호를 입력해 주세요."), { code: "missing-login" });
 
     const email = await internalEmail(id);
-    const credential = await withTimeout(signInWithEmailAndPassword(fbAuth, email, pw), 7000, "Firebase 로그인 응답이 지연되고 있습니다.");
-    const profile = await withTimeout(loadFirebaseProfile(credential.user), 5000, "Firebase 회원정보 조회가 지연되고 있습니다.");
+    const credential = await signInWithEmailAndPassword(fbAuth, email, pw);
+    const profile = await loadFirebaseProfile(credential.user);
     if (!profile) {
       const localRows = getLegacyUsers();
       const localUser = localRows.find(u => String(u.id) === String(id));
@@ -13804,23 +13776,47 @@ const app = {
       const id = document.getElementById("login-id")?.value.trim();
       const pw = document.getElementById("login-pw")?.value || "";
       if (!id || !pw) return alert("로그인 ID와 비밀번호를 입력해 주세요.");
+
+      // 핵심: 로그인 화면은 Firebase 응답을 기다리지 않습니다.
+      // 기존 로컬 회원정보를 먼저 확인하여 즉시 화면에 진입시키고,
+      // Firebase 인증/동기화는 백그라운드에서만 수행합니다.
+      let localUser = null;
       try {
-        const user = await withTimeout(firebaseLogin(), 9000, "Firebase 로그인 시간이 초과되었습니다. 로컬 로그인으로 전환합니다.");
+        const rows = legacyApp.auth.normalizeUsers(legacyApp.db.getUsers());
+        localUser = rows.find(u => String(u.id) === String(id) && String(u.pw || "") === pw) || null;
+      } catch (_) {}
+
+      if (localUser) {
+        legacyApp.auth.currentUser = localUser;
+        try { legacyApp.auth.syncCurrentUser?.(); } catch (_) {}
+        legacyApp.ui.initSystem();
+        refreshPanel();
+
+        // Firebase는 화면 진입을 막지 않고 최대 5초 동안만 백그라운드 인증합니다.
+        Promise.race([
+          firebaseLogin(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Firebase background login timeout")), 5000))
+        ]).then(user => {
+          if (user) {
+            legacyApp.auth.currentUser = user;
+            try { legacyApp.auth.syncCurrentUser?.(); } catch (_) {}
+          }
+        }).catch(err => {
+          console.warn("[GNP] Firebase background login skipped:", err?.code || err?.message || err);
+        });
+        return;
+      }
+
+      // 로컬 회원정보가 없는 계정만 Firebase 인증을 사용하되, 무한 대기는 허용하지 않습니다.
+      try {
+        const user = await Promise.race([
+          firebaseLogin(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Firebase login timeout")), 7000))
+        ]);
         legacyApp.auth.currentUser = user;
-        try { legacyApp.auth.syncCurrentUser?.(); } catch (_) { }
+        try { legacyApp.auth.syncCurrentUser?.(); } catch (_) {}
         legacyApp.ui.initSystem();
       } catch (firebaseError) {
-        // 아직 이전하지 않은 계정은 기존 로그인 방식으로 안전하게 fallback합니다.
-        try {
-          const rows = legacyApp.auth.normalizeUsers(legacyApp.db.getUsers());
-          const local = rows.find(u => String(u.id) === String(id) && String(u.pw || "") === pw);
-          if (local) {
-            legacyApp.auth.currentUser = local;
-            legacyApp.ui.initSystem();
-            writeLog(`로컬 로그인 fallback: ${id} (${firebaseError.code || firebaseError.message})`);
-            return;
-          }
-        } catch (_) { }
         alert(`로그인에 실패했습니다.\n${firebaseError.code || firebaseError.message || "인증 정보를 확인해 주세요."}`);
       } finally {
         refreshPanel();
@@ -13868,31 +13864,48 @@ const app = {
       }
     };
 
-    // Firebase 로그인 세션이 있다면 새로고침 후 자동 복귀합니다.
-    onAuthStateChanged(fbAuth, async (firebaseUser) => {
+    // Firebase 세션 복원도 Firestore 응답을 기다린 뒤 화면을 열지 않습니다.
+    // 로컬 회원정보가 있으면 즉시 화면을 열고 프로필은 백그라운드에서 보강합니다.
+    onAuthStateChanged(fbAuth, (firebaseUser) => {
       if (!firebaseUser) { refreshPanel(); return; }
+
+      let local = null;
       try {
-        const profile = await loadFirebaseProfile(firebaseUser);
         const localRows = getLegacyUsers();
-        const local = profile ? localRows.find(u => String(u.id) === String(profile.legacyId || "")) : null;
-        // Firebase Auth는 남아 있어도 Firestore 회원 프로필이 삭제된 계정은 즉시 세션을 폐기합니다.
-        if (!profile || !local) {
-          try { await signOut(fbAuth); } catch (_) { }
-          legacyApp.auth.currentUser = null;
-          document.getElementById("auth-layer")?.classList.remove("hidden");
-          document.getElementById("main-sidebar")?.classList.add("hidden");
-          document.getElementById("main-body")?.classList.add("hidden");
+        const legacyId = String(firebaseUser.email || "").match(/^u-([a-f0-9]{32})@/i)?.[1] || "";
+        // 이메일 해시만으로는 legacyId를 역산할 수 없으므로, 현재 로그인 사용자가 있으면 우선 유지합니다.
+        const current = legacyApp.auth.currentUser;
+        if (current?.id) local = current;
+        if (local) {
+          legacyApp.auth.currentUser = local;
+          if (!document.getElementById("auth-layer")?.classList.contains("hidden")) {
+            legacyApp.ui.initSystem();
+          }
           refreshPanel();
-          return;
         }
-        legacyApp.auth.currentUser = { ...(local || {}), ...profile, id: profile.legacyId || local?.id || profile.name, name: profile.name || local?.name, role: profile.role || local?.role || "반원", team: profile.team || local?.team || "미지정" };
-        if (getLegacyApp()?.ui?.initSystem && document.getElementById("auth-layer")?.classList.contains("hidden") === false) {
-          legacyApp.ui.initSystem();
-        }
+      } catch (_) {}
+
+      // Firestore 프로필 조회는 화면을 막지 않습니다.
+      Promise.race([
+        loadFirebaseProfile(firebaseUser),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Firebase profile timeout")), 5000))
+      ]).then(profile => {
+        if (!profile) return;
+        const current = legacyApp.auth.currentUser || {};
+        const merged = {
+          ...current,
+          ...profile,
+          id: profile.legacyId || current.id || profile.name,
+          name: profile.name || current.name,
+          role: profile.role || current.role || "반원",
+          team: profile.team || current.team || "미지정"
+        };
+        legacyApp.auth.currentUser = merged;
+        try { legacyApp.auth.syncCurrentUser?.(); } catch (_) {}
         refreshPanel();
-      } catch (error) {
-        console.warn("Firebase auth state restore failed", error);
-      }
+      }).catch(error => {
+        console.warn("Firebase auth state restore skipped:", error?.message || error);
+      });
     });
 
     // 기존 로그아웃 버튼이 Firebase 세션도 정리하도록 변경합니다.
@@ -13938,14 +13951,13 @@ const app = {
       if (status) { status.textContent = "Firebase SDK 연결 완료"; status.style.color = "#047857"; }
       writeLog("Firebase SDK 초기화 완료");
 
-      // Firebase는 화면 표시를 막지 않습니다. 원본 앱이 준비되면 백그라운드에서 로그인 기능만 패치합니다.
-      const patchDeadline = Date.now() + 5000;
-      while (!(getLegacyApp()?.auth && getLegacyApp()?.db) && Date.now() < patchDeadline) {
+      // app은 원본 스크립트들이 먼저 초기화하므로 아주 짧게 기다린 뒤 patch합니다.
+      const deadline = Date.now() + 15000;
+      while (!(getLegacyApp()?.auth && getLegacyApp()?.db)) {
+        if (Date.now() > deadline) throw new Error("기존 앱 초기화가 완료되지 않았습니다.");
         await new Promise(resolve => setTimeout(resolve, 100));
       }
-      if (getLegacyApp()?.auth && getLegacyApp()?.db) {
-        await patchAuth();
-      }
+      await patchAuth();
       refreshPanel();
       return true;
     } catch (error) {
@@ -14574,9 +14586,29 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthState
   }
 
   async function ensureAuth(){
-    // 로그인 화면/일반 화면에서는 Firebase 로그인을 새로 시도하지 않습니다.
-    // 로그인은 상단 Firebase 인증 브리지에서만 담당하고, 여기서는 이미 열린 세션만 사용합니다.
-    return !!auth?.currentUser;
+    if(auth?.currentUser) return true;
+    const u=window.app?.auth?.currentUser;
+    const legacyId=String(u?.id||u?.name||'').trim();
+    const pw=String(u?.pw||'');
+    if(!legacyId || !pw) return false;
+    const email=`u-${(await sha(legacyId)).slice(0,32)}@${DOMAIN}`;
+    try{
+      const c=await signInWithEmailAndPassword(auth,email,pw);
+      return !!c?.user;
+    }catch(e){
+      // If this legacy account was never migrated, create the matching Firebase Auth account.
+      if(e?.code==='auth/user-not-found' || e?.code==='auth/invalid-credential' || e?.code==='auth/invalid-login-credentials'){
+        try{
+          const c=await createUserWithEmailAndPassword(auth,email,pw);
+          return !!c?.user;
+        }catch(createErr){
+          console.warn('[GNP] Firebase proposal auth unavailable:',createErr?.code||createErr?.message||createErr);
+        }
+      } else {
+        console.warn('[GNP] Firebase proposal sign-in failed:',e?.code||e?.message||e);
+      }
+      return false;
+    }
   }
 
   function compress(dataUrl,max=MAX_PHOTO){
@@ -14688,7 +14720,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthState
     const ai=window.app?.ai1;
     if(!gf?.db || !gf?.auth || !ai) return false;
     db=gf.db;auth=gf.auth;
-    if(!auth?.currentUser) return false;
+    if(!(await ensureAuth())) return false;
     // First pull shared cloud data, then upload any local-only rows (e.g. a proposal just created on a phone).
     await pullCloud();
     await writeRows(local());
@@ -14703,16 +14735,9 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthState
 
   wait(()=>window.gnpFirebase?.db&&window.gnpFirebase?.auth&&window.app?.ai1).then(()=>{
     db=window.gnpFirebase.db;auth=window.gnpFirebase.auth;
-    // Firebase 세션이 실제로 생겼을 때만 동기화를 시작합니다.
-    // 로그인 전 반복 sign-in/3초 polling을 제거해 모바일·PC 무한대기/랙을 방지합니다.
-    onAuthStateChanged(auth,u=>{
-      if(u) start().catch(console.error);
-      else { try { bind(); } catch (_) {} }
-    });
-    if(auth?.currentUser) start().catch(console.error);
-    window.addEventListener('storage',e=>{
-      if(e.key===KEY && auth?.currentUser) writeRows(local()).catch(()=>{});
-    });
+    onAuthStateChanged(auth,u=>{if(u)start().catch(console.error);});
+    start().catch(console.error);
+    setInterval(()=>{bind();if(auth?.currentUser)writeRows(local()).catch(()=>{});else start().catch(()=>{});},3000);
   });
 })();
 </script>
@@ -14938,4 +14963,49 @@ import { collection, getDocs, setDoc, serverTimestamp } from "https://www.gstati
 })();
 </script>
 
+
+<!-- FINAL LOGIN HANG SAFETY PATCH: do not let Firebase initialization block the legacy login UI. -->
+<script id="gnp-final-login-hang-fix">
+(function(){
+  'use strict';
+  var started=false;
+  function install(){
+    if(started || !window.app || !app.auth || !app.db || !app.ui) return false;
+    started=true;
+    var auth=app.auth;
+    if(auth.__gnpFinalLoginHangFix) return true;
+    auth.__gnpFinalLoginHangFix=true;
+    var oldLogin=auth.login;
+    auth.login=function(){
+      var id=(document.getElementById('login-id')||{}).value||'';
+      var pw=(document.getElementById('login-pw')||{}).value||'';
+      id=String(id).trim();
+      if(!id || !pw){ alert('로그인 ID와 비밀번호를 입력해 주세요.'); return; }
+      try{
+        var users=typeof auth.normalizeUsers==='function' ? auth.normalizeUsers(app.db.getUsers()) : (app.db.getUsers()||[]);
+        var user=users.find(function(u){ return String(u.id)===id && String(u.pw||'')===pw; });
+        if(user){
+          auth.currentUser=user;
+          app.ui.initSystem();
+          return;
+        }
+      }catch(e){ console.warn('[GNP] local login fallback failed',e); }
+      // 기존 로그인 로직은 로컬 회원이 없는 경우에만 사용합니다.
+      try{
+        if(typeof oldLogin==='function') return oldLogin.apply(auth,arguments);
+      }catch(e){ alert('로그인에 실패했습니다.'); console.error(e); }
+    };
+    return true;
+  }
+  function boot(){
+    if(install()) return;
+    var tries=0;
+    var timer=setInterval(function(){
+      if(install() || ++tries>100) clearInterval(timer);
+    },100);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true});
+  else boot();
+})();
+</script>
 </html>
