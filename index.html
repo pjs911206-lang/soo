@@ -156,57 +156,88 @@
   }
 </style>
 
-<style id="gnp-mobile-topbar-visibility-v26">
+<style id="gnp-mobile-topbar-final-v27">
 @media (max-width: 768px) {
+  #main-body {
+    display:flex !important;
+    flex-direction:column !important;
+    width:100vw !important;
+    max-width:100vw !important;
+    min-width:0 !important;
+  }
+
   #main-body > header {
     display:flex !important;
-    position:sticky !important;
-    top:0 !important;
-    z-index:900 !important;
+    visibility:visible !important;
+    opacity:1 !important;
+    position:relative !important;
+    width:100% !important;
     height:60px !important;
     min-height:60px !important;
-    padding:0 10px 0 58px !important;
+    flex:0 0 60px !important;
+    z-index:1002 !important;
+    padding:0 10px 0 56px !important;
     overflow:visible !important;
-    flex-shrink:0 !important;
+    background:#fff !important;
+    border-bottom:1px solid #e2e8f0 !important;
   }
+
+  #main-body > header #view-title,
+  #main-body > header #user-info,
+  #main-body > header #user-role,
+  #main-body > header #user-avatar {
+    visibility:visible !important;
+    opacity:1 !important;
+  }
+
   #main-body > header #view-title {
+    display:block !important;
     margin-left:0 !important;
-    font-size:16px !important;
-    line-height:1 !important;
+    font-size:15px !important;
+    line-height:1.2 !important;
     white-space:nowrap !important;
     overflow:hidden !important;
     text-overflow:ellipsis !important;
     max-width:42vw !important;
   }
+
   #main-body > header > div:last-child {
     display:flex !important;
     align-items:center !important;
+    justify-content:flex-end !important;
     margin-left:auto !important;
     min-width:0 !important;
+    height:100% !important;
   }
-  #main-body > header #user-info,
-  #main-body > header #user-role,
-  #main-body > header #user-avatar {
-    display:flex !important;
-    visibility:visible !important;
-    opacity:1 !important;
-  }
+
   #main-body > header #user-info {
+    display:block !important;
     max-width:115px !important;
     white-space:nowrap !important;
     overflow:hidden !important;
     text-overflow:ellipsis !important;
-    font-size:11px !important;
+    font-size:10px !important;
+    line-height:1.2 !important;
   }
+
   #main-body > header #user-role {
+    display:block !important;
     font-size:8px !important;
+    line-height:1.2 !important;
     white-space:nowrap !important;
+    color:#2563eb !important;
   }
+
   #main-body > header #user-avatar {
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
     width:30px !important;
     height:30px !important;
     min-width:30px !important;
-    margin-left:4px !important;
+    min-height:30px !important;
+    margin-left:5px !important;
+    border-radius:9999px !important;
   }
 }
 </style>
@@ -15022,24 +15053,36 @@ const app = {
 
 
 <!-- ============================================================
-     GNP FIRESTORE-FIRST SHARED DATA v26
-     Scope:
-       - USERS / 권한 / 팀 / 결재권한
-       - AI1 SAFETY PROPOSALS
-     For these two domains, localStorage is NOT used.
-     Firestore is the source of truth and in-memory JS objects are the
-     transient runtime cache.
+     GNP FIRESTORE-FIRST / REALTIME v27
+     Shared domains:
+       users
+       safetyProposals
+
+     For these domains:
+       - Firestore is the ONLY persistent source of truth.
+       - No localStorage read/write is used.
+       - onSnapshot drives every device.
+       - create/edit/delete/role/team/status/approval write to Firestore.
+       - login uses Firebase Auth + Firestore profile.
+     Existing non-shared modules keep their original storage.
      ============================================================ -->
-<script type="module" id="gnp-firestore-first-shared-data-v26">
+<script type="module" id="gnp-firestore-first-v27">
 import {
   collection,
-  doc,
+  query,
+  where,
   getDocs,
+  doc,
+  getDoc,
   setDoc,
   deleteDoc,
   onSnapshot,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+
+import {
+  signInWithEmailAndPassword
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 
 (function(){
   'use strict';
@@ -15052,10 +15095,11 @@ import {
   let proposals = [];
   let usersReady = false;
   let proposalsReady = false;
-  let usersUnsub = null;
-  let proposalsUnsub = null;
-  let loadingUsers = null;
-  let loadingProposals = null;
+  let userUnsub = null;
+  let proposalUnsub = null;
+
+  const userWriteQueue = new Map();
+  const proposalWriteQueue = new Map();
 
   const clone = value => {
     try { return JSON.parse(JSON.stringify(value)); }
@@ -15064,46 +15108,43 @@ import {
 
   const clean = value => {
     const out = { ...(value || {}) };
-    Object.keys(out).forEach(key => {
-      if(out[key] === undefined) delete out[key];
+    Object.keys(out).forEach(k => {
+      if(out[k] === undefined) delete out[k];
     });
     return out;
   };
 
-  const userId = u => String(u?.id || u?.legacyId || u?.name || '').trim();
-  const proposalId = p => String(p?.id || '').trim();
+  const userId = user =>
+    String(user?.id || user?.legacyId || user?.name || '').trim();
+
+  const proposalId = row =>
+    String(row?.id || '').trim();
 
   function db(){
-    const db = window.gnpFirebase?.db;
-    if(!db) throw new Error('Firebase Firestore가 아직 준비되지 않았습니다.');
-    return db;
+    const value = window.gnpFirebase?.db;
+    if(!value) throw new Error('Firebase Firestore가 초기화되지 않았습니다.');
+    return value;
   }
 
-  function renderUsers(){
-    try {
-      const me = window.app?.auth?.currentUser;
-      if(me){
-        const fresh = users.find(u => userId(u) === userId(me));
-        if(fresh){
-          window.app.auth.currentUser = {
-            ...me,
-            ...fresh
-          };
-          refreshTopBar();
-        }
-      }
-    } catch(_){}
-
-    try { window.renderPermissionV3?.(); } catch(_){}
-    try { window.permissionControl?.filter?.(); } catch(_){}
-    try { window.app?.auth?.refreshPanel?.(); } catch(_){}
+  function auth(){
+    return window.gnpFirebase?.auth || null;
   }
 
-  function renderProposals(){
-    try { window.app?.ai1?.render?.(); } catch(_){}
+  function enqueue(map, key, task){
+    const old = map.get(key) || Promise.resolve();
+
+    const next = old
+      .catch(() => {})
+      .then(task)
+      .finally(() => {
+        if(map.get(key) === next) map.delete(key);
+      });
+
+    map.set(key, next);
+    return next;
   }
 
-  function refreshTopBar(){
+  function refreshTopbar(){
     const u = window.app?.auth?.currentUser;
     if(!u) return;
 
@@ -15111,186 +15152,250 @@ import {
     const role = document.getElementById('user-role');
     const avatar = document.getElementById('user-avatar');
 
-    if(info) info.textContent = `${u.name || u.id || ''} (${u.team || '미지정'})`;
-    if(role){
-      const r = String(u.role || '반원');
-      role.textContent = r === 'MASTER' ? 'Master Access' : r;
+    if(info){
+      info.textContent = `${u.name || u.id || ''} (${u.team || '미지정'})`;
     }
+
+    if(role){
+      role.textContent = String(u.role || '반원');
+    }
+
     if(avatar){
       avatar.textContent = String(u.name || u.id || 'G').charAt(0);
     }
   }
 
-  async function loadUsersOnce(){
-    if(usersReady) return users;
-    if(loadingUsers) return loadingUsers;
-
-    loadingUsers = (async() => {
-      const snap = await getDocs(collection(db(), USERS));
-      const byId = new Map();
-
-      snap.docs.forEach(d => {
-        const data = d.data() || {};
-        const id = String(data.legacyId || data.id || data.name || d.id).trim();
-        if(!id) return;
-
-        const row = { ...data, id };
-
-        // Prefer canonical users/{id} documents if duplicates exist.
-        const previous = byId.get(id);
-        if(!previous || d.id === id){
-          byId.set(id, row);
-        }
-      });
-
-      users = [...byId.values()];
-      usersReady = true;
-      renderUsers();
-      return users;
-    })().finally(() => {
-      loadingUsers = null;
-    });
-
-    return loadingUsers;
+  function refreshUserUI(){
+    try { window.renderPermissionV3?.(); } catch(_){}
+    try { window.permissionControl?.filter?.(); } catch(_){}
+    try { window.app?.auth?.refreshPanel?.(); } catch(_){}
+    refreshTopbar();
   }
 
-  async function loadProposalsOnce(){
-    if(proposalsReady) return proposals;
-    if(loadingProposals) return loadingProposals;
-
-    loadingProposals = (async() => {
-      const snap = await getDocs(collection(db(), PROPOSALS));
-      proposals = snap.docs.map(d => {
-        const data = d.data() || {};
-        return { ...data, id:String(data.id || d.id) };
-      }).filter(row => proposalId(row));
-
-      proposalsReady = true;
-      return proposals;
-    })().finally(() => {
-      loadingProposals = null;
-    });
-
-    return loadingProposals;
+  function refreshProposalUI(){
+    try { window.app?.ai1?.render?.(); } catch(_){}
   }
 
-  function startRealtime(){
-    if(usersUnsub) try { usersUnsub(); } catch(_){}
-    if(proposalsUnsub) try { proposalsUnsub(); } catch(_){}
+  /*
+   * Firestore users -> in-memory users.
+   * No localStorage is involved.
+   */
+  function startUsersRealtime(){
+    const firestore = db();
 
-    usersUnsub = onSnapshot(
-      collection(db(), USERS),
-      snap => {
+    if(userUnsub){
+      try { userUnsub(); } catch(_){}
+      userUnsub = null;
+    }
+
+    userUnsub = onSnapshot(
+      collection(firestore, USERS),
+      snapshot => {
         const byId = new Map();
 
-        snap.docs.forEach(d => {
-          const data = d.data() || {};
-          const id = String(data.legacyId || data.id || data.name || d.id).trim();
+        snapshot.docs.forEach(item => {
+          const data = item.data() || {};
+          const id = String(
+            data.legacyId ||
+            data.id ||
+            data.name ||
+            item.id ||
+            ''
+          ).trim();
+
           if(!id) return;
 
           const row = { ...data, id };
 
-          const prev = byId.get(id);
-          if(!prev || d.id === id) byId.set(id, row);
+          /*
+           * Prefer users/{legacyId} if there are legacy duplicate documents.
+           */
+          const previous = byId.get(id);
+          if(!previous || item.id === id){
+            byId.set(id, row);
+          }
         });
 
         users = [...byId.values()];
         usersReady = true;
 
-        renderUsers();
-        refreshTopBar();
+        /*
+         * Refresh current runtime user from Firestore immediately.
+         */
+        try {
+          const current = window.app?.auth?.currentUser;
 
-        console.log('[GNP v26] Firestore users realtime:', users.length);
+          if(current){
+            const latest = users.find(u => userId(u) === userId(current));
+
+            if(latest){
+              window.app.auth.currentUser = {
+                ...current,
+                ...latest
+              };
+            }
+          }
+        } catch(_){}
+
+        refreshUserUI();
+
+        console.log('[GNP v27] Firestore users realtime:', users.length);
       },
-      error => console.error('[GNP v26] users listener error:', error)
+      error => {
+        console.error('[GNP v27] users onSnapshot error:', error);
+      }
     );
+  }
 
-    proposalsUnsub = onSnapshot(
-      collection(db(), PROPOSALS),
-      snap => {
-        proposals = snap.docs.map(d => {
-          const data = d.data() || {};
-          return { ...data, id:String(data.id || d.id) };
+  /*
+   * Firestore safetyProposals -> in-memory proposals.
+   */
+  function startProposalsRealtime(){
+    const firestore = db();
+
+    if(proposalUnsub){
+      try { proposalUnsub(); } catch(_){}
+      proposalUnsub = null;
+    }
+
+    proposalUnsub = onSnapshot(
+      collection(firestore, PROPOSALS),
+      snapshot => {
+        proposals = snapshot.docs.map(item => {
+          const data = item.data() || {};
+          return {
+            ...data,
+            id: String(data.id || item.id)
+          };
         }).filter(row => proposalId(row));
 
         proposalsReady = true;
 
-        /*
-         * No localStorage update here.
-         * Every device renders the same Firestore collection directly.
-         */
-        renderProposals();
+        refreshProposalUI();
 
-        console.log('[GNP v26] Firestore proposals realtime:', proposals.length);
+        console.log('[GNP v27] Firestore safetyProposals realtime:', proposals.length);
       },
-      error => console.error('[GNP v26] proposals listener error:', error)
+      error => {
+        console.error('[GNP v27] proposals onSnapshot error:', error);
+      }
     );
   }
 
-  async function saveUserCloud(user){
-    const id = userId(user);
-    if(!id) throw new Error('사용자 ID가 없습니다.');
+  async function findUserProfile(loginId){
+    const firestore = db();
+    const normalized = String(loginId || '').trim();
 
-    await setDoc(
-      doc(db(), USERS, id),
-      {
-        ...clean(user),
-        id,
-        legacyId:id,
-        name:String(user.name || id),
-        team:String(user.team || ''),
-        role:String(user.role || '반원'),
-        modules:Array.isArray(user.modules) ? user.modules : [],
-        active:user.active !== false,
-        approvalPermission:!!user.approvalPermission,
-        approvalScope:String(user.approvalScope || 'TEAM'),
-        syncSource:'GNP-v26',
-        syncUpdatedAt:serverTimestamp()
-      },
-      { merge:true }
+    if(!normalized) return null;
+
+    /*
+     * Existing migrated profiles use legacyId.
+     */
+    const byLegacy = await getDocs(
+      query(
+        collection(firestore, USERS),
+        where('legacyId', '==', normalized)
+      )
     );
 
-    const index = users.findIndex(u => userId(u) === id);
-    if(index >= 0) users[index] = { ...users[index], ...clone(user), id };
-    else users.push({ ...clone(user), id });
+    if(!byLegacy.empty){
+      const item = byLegacy.docs[0];
+      return {
+        firestoreId: item.id,
+        data: {
+          ...(item.data() || {}),
+          id: String(item.data()?.legacyId || item.data()?.id || normalized)
+        }
+      };
+    }
 
-    renderUsers();
-    refreshTopBar();
-  }
-
-  async function saveProposalCloud(row){
-    const id = proposalId(row);
-    if(!id) throw new Error('안전제안 ID가 없습니다.');
-
-    await setDoc(
-      doc(db(), PROPOSALS, id),
-      {
-        ...clean(row),
-        id,
-        syncSource:'GNP-v26',
-        syncUpdatedAt:serverTimestamp()
-      },
-      { merge:true }
+    /*
+     * Backward compatibility for profiles using id/name.
+     */
+    const byId = await getDocs(
+      query(
+        collection(firestore, USERS),
+        where('id', '==', normalized)
+      )
     );
 
-    const index = proposals.findIndex(p => proposalId(p) === id);
-    if(index >= 0) proposals[index] = { ...proposals[index], ...clone(row), id };
-    else proposals.unshift({ ...clone(row), id });
+    if(!byId.empty){
+      const item = byId.docs[0];
+      return {
+        firestoreId: item.id,
+        data: {
+          ...(item.data() || {}),
+          id: String(item.data()?.legacyId || item.data()?.id || normalized)
+        }
+      };
+    }
+
+    return null;
   }
 
-  async function removeProposalCloud(id){
-    id = String(id || '').trim();
-    if(!id) return;
+  async function firebasePasswordLogin(loginId, password){
+    const fbAuth = auth();
 
-    await deleteDoc(doc(db(), PROPOSALS, id));
-    proposals = proposals.filter(p => proposalId(p) !== id);
+    if(!fbAuth){
+      throw new Error('Firebase Authentication이 초기화되지 않았습니다.');
+    }
+
+    const profile = await findUserProfile(loginId);
+
+    if(!profile){
+      throw new Error('Firebase에서 해당 회원을 찾을 수 없습니다.');
+    }
+
+    /*
+     * The existing system exposes the same deterministic internal email
+     * helper on window.gnpFirebase.
+     */
+    let email = null;
+
+    if(typeof window.gnpFirebase?.internalEmail === 'function'){
+      email = await window.gnpFirebase.internalEmail(loginId);
+    } else {
+      throw new Error('Firebase 내부 로그인 주소 생성기가 없습니다.');
+    }
+
+    const credential = await signInWithEmailAndPassword(
+      fbAuth,
+      email,
+      password
+    );
+
+    const uidDoc = await getDoc(
+      doc(db(), USERS, credential.user.uid)
+    );
+
+    let firestoreProfile = profile.data;
+
+    if(uidDoc.exists()){
+      firestoreProfile = {
+        ...firestoreProfile,
+        ...uidDoc.data(),
+        id: String(
+          uidDoc.data()?.legacyId ||
+          uidDoc.data()?.id ||
+          loginId
+        )
+      };
+    }
+
+    return {
+      ...firestoreProfile,
+      id: String(
+        firestoreProfile.legacyId ||
+        firestoreProfile.id ||
+        loginId
+      ),
+      name: String(firestoreProfile.name || loginId),
+      team: String(firestoreProfile.team || '미지정'),
+      role: String(firestoreProfile.role || '반원'),
+      firebaseUid: credential.user.uid
+    };
   }
 
-  /*
-   * Patch DB user access after the application object exists.
-   * No localStorage is touched for users.
-   */
-  function patchDb(){
+  function installDb(){
     const app = window.app;
     if(!app?.db) return false;
 
@@ -15300,45 +15405,47 @@ import {
 
     app.db.saveUsers = function(rows){
       const next = clone(rows) || [];
-      const before = new Map(users.map(u => [userId(u), u]).filter(([id]) => id));
+      const before = new Map(
+        users.map(u => [userId(u), u]).filter(([id]) => id)
+      );
 
+      /*
+       * Runtime memory changes first; Firestore is persistent source.
+       */
       users = next;
 
-      next.forEach(u => {
-        const id = userId(u);
+      next.forEach(row => {
+        const id = userId(row);
         if(!id) return;
 
         const old = before.get(id);
-        if(JSON.stringify(clean(old)) !== JSON.stringify(clean(u))){
-          saveUserCloud(u).catch(error =>
-            console.error('[GNP v26] user Firestore save failed:', id, error)
-          );
+
+        if(JSON.stringify(clean(old)) !== JSON.stringify(clean(row))){
+          enqueue(userWriteQueue, id, () => saveUser(row))
+            .catch(error =>
+              console.error('[GNP v27] users save failed:', id, error)
+            );
         }
       });
 
-      /*
-       * Users deleted from the local runtime list are also deleted from
-       * Firestore only when the save operation explicitly removes them.
-       */
       before.forEach((_, id) => {
-        if(!next.some(u => userId(u) === id)){
-          deleteDoc(doc(db(), USERS, id)).catch(error =>
-            console.error('[GNP v26] user Firestore delete failed:', id, error)
+        if(!next.some(row => userId(row) === id)){
+          enqueue(userWriteQueue, id, async () => {
+            await deleteDoc(doc(db(), USERS, id));
+          }).catch(error =>
+            console.error('[GNP v27] user delete failed:', id, error)
           );
         }
       });
 
-      refreshTopBar();
+      refreshUserUI();
       return true;
     };
 
     return true;
   }
 
-  /*
-   * Patch AI1 data access. Again: no localStorage for safety proposals.
-   */
-  function patchAI(){
+  function installProposalDb(){
     const ai = window.app?.ai1;
     if(!ai) return false;
 
@@ -15348,49 +15455,101 @@ import {
 
     ai.saveData = function(rows){
       const next = clone(rows) || [];
-      const before = new Map(proposals.map(p => [proposalId(p), p]).filter(([id]) => id));
-      const after = new Map(next.map(p => [proposalId(p), p]).filter(([id]) => id));
+
+      const before = new Map(
+        proposals.map(row => [proposalId(row), row]).filter(([id]) => id)
+      );
+
+      const after = new Map(
+        next.map(row => [proposalId(row), row]).filter(([id]) => id)
+      );
 
       proposals = next;
 
-      after.forEach((row,id) => {
+      after.forEach((row, id) => {
         if(JSON.stringify(clean(before.get(id))) !== JSON.stringify(clean(row))){
-          saveProposalCloud(row).catch(error =>
-            console.error('[GNP v26] proposal Firestore save failed:', id, error)
-          );
+          enqueue(proposalWriteQueue, id, () => saveProposal(row))
+            .catch(error =>
+              console.error('[GNP v27] proposal save failed:', id, error)
+            );
         }
       });
 
-      before.forEach((_,id) => {
+      before.forEach((_, id) => {
         if(!after.has(id)){
-          removeProposalCloud(id).catch(error =>
-            console.error('[GNP v26] proposal Firestore delete failed:', id, error)
-          );
+          enqueue(proposalWriteQueue, id, () => deleteProposal(id))
+            .catch(error =>
+              console.error('[GNP v27] proposal delete failed:', id, error)
+            );
         }
       });
 
       return true;
     };
 
-    /*
-     * The main create function in this HTML is synchronous and currently
-     * calls saveData(). Because saveData is now the Firestore writer,
-     * created/edited proposals are persisted without localStorage.
-     */
+    return true;
+  }
+
+  async function saveUser(row){
+    const id = userId(row);
+    if(!id) return false;
+
+    await setDoc(
+      doc(db(), USERS, id),
+      {
+        ...clean(row),
+        id,
+        legacyId:id,
+        name:String(row.name || id),
+        team:String(row.team || ''),
+        role:String(row.role || '반원'),
+        modules:Array.isArray(row.modules) ? row.modules : [],
+        active:row.active !== false,
+        approvalPermission:!!row.approvalPermission,
+        approvalScope:String(row.approvalScope || 'TEAM'),
+        syncSource:'GNP-v27',
+        syncUpdatedAt:serverTimestamp()
+      },
+      { merge:true }
+    );
 
     return true;
   }
 
-  /*
-   * Make login wait for the Firestore user list.
-   * Firebase Auth is still used later by the existing bridge when available,
-   * but the visible app user/role/team comes from Firestore.
-   */
-  function patchLogin(){
-    const auth = window.app?.auth;
-    if(!auth?.login || auth.login.__v26) return false;
+  async function saveProposal(row){
+    const id = proposalId(row);
+    if(!id) return false;
 
-    auth.login = async function(){
+    await setDoc(
+      doc(db(), PROPOSALS, id),
+      {
+        ...clean(row),
+        id,
+        syncSource:'GNP-v27',
+        syncUpdatedAt:serverTimestamp()
+      },
+      { merge:true }
+    );
+
+    return true;
+  }
+
+  async function deleteProposal(id){
+    const value = String(id || '').trim();
+    if(!value) return false;
+
+    await deleteDoc(
+      doc(db(), PROPOSALS, value)
+    );
+
+    return true;
+  }
+
+  function installLogin(){
+    const app = window.app;
+    if(!app?.auth || app.auth.login.__gnpV27) return false;
+
+    app.auth.login = async function(){
       const id = document.getElementById('login-id')?.value?.trim() || '';
       const pw = document.getElementById('login-pw')?.value || '';
 
@@ -15400,65 +15559,83 @@ import {
       }
 
       try{
-        await loadUsersOnce();
+        /*
+         * Login no longer reads gnp_users from localStorage.
+         * Authentication + profile are obtained from Firebase.
+         */
+        const user = await firebasePasswordLogin(id, pw);
 
-        const user = users.find(u =>
-          String(u.id) === id &&
-          String(u.pw || '') === pw
-        );
-
-        if(!user){
-          /*
-           * For accounts that are Firebase Auth-only, fall through to the
-           * existing Firebase bridge if it exposed firebaseLogin().
-           */
-          if(typeof window.__gnpFirebaseLoginForV26 === 'function'){
-            const fbUser = await window.__gnpFirebaseLoginForV26();
-            if(fbUser){
-              window.app.auth.currentUser = fbUser;
-              window.app.ui.initSystem();
-              refreshTopBar();
-              return;
-            }
-          }
-
-          alert('인증 정보가 올바르지 않습니다.');
-          return;
-        }
-
-        window.app.auth.currentUser = clone(user);
-        window.app.ui.initSystem();
-        refreshTopBar();
+        app.auth.currentUser = user;
+        app.ui.initSystem();
+        refreshTopbar();
       }catch(error){
-        console.error('[GNP v26] Firestore login error:', error);
-        alert('로그인 정보 불러오기에 실패했습니다. 인터넷 연결을 확인해 주세요.');
+        console.error('[GNP v27] Firebase login failed:', error);
+        alert(
+          `인증 정보가 올바르지 않습니다.\n\n` +
+          `${error?.message || 'Firebase 인증 실패'}`
+        );
       }
     };
 
-    auth.login.__v26 = true;
+    app.auth.login.__gnpV27 = true;
+    return true;
+  }
+
+  function installNormalize(){
+    const authObj = window.app?.auth;
+    if(!authObj?.normalizeUsers || authObj.normalizeUsers.__gnpV27) return false;
+
+    authObj.normalizeUsers = function(items){
+      return (Array.isArray(items) ? items : []).map(user => ({
+        ...user,
+        id:userId(user),
+        name:String(user.name || user.id || ''),
+        team:String(user.team || '미지정'),
+        role:String(user.role || '반원'),
+        modules:Array.isArray(user.modules) ? user.modules : []
+      }));
+    };
+
+    authObj.normalizeUsers.__gnpV27 = true;
     return true;
   }
 
   /*
-   * Replace the normalizer so Firestore role values are preserved.
+   * Keep the mobile header visible after any later render script changes it.
    */
-  function patchNormalize(){
-    const auth = window.app?.auth;
-    if(!auth?.normalizeUsers || auth.normalizeUsers.__v26) return false;
+  function startTopbarGuard(){
+    const enforce = () => {
+      if(window.innerWidth > 768) return;
 
-    auth.normalizeUsers = function(items){
-      return (Array.isArray(items) ? items : []).map(u => ({
-        ...u,
-        id:userId(u),
-        name:String(u.name || u.id || ''),
-        team:String(u.team || ''),
-        role:String(u.role || '반원'),
-        modules:Array.isArray(u.modules) ? u.modules : []
-      }));
+      const header = document.querySelector('#main-body > header');
+      const main = document.getElementById('main-body');
+
+      if(header){
+        header.style.setProperty('display','flex','important');
+        header.style.setProperty('visibility','visible','important');
+        header.style.setProperty('opacity','1','important');
+      }
+
+      if(main && !main.classList.contains('hidden')){
+        main.style.setProperty('display','flex','important');
+        main.style.setProperty('visibility','visible','important');
+      }
+
+      refreshTopbar();
     };
 
-    auth.normalizeUsers.__v26 = true;
-    return true;
+    enforce();
+    window.addEventListener('resize', enforce, {passive:true});
+    window.addEventListener('load', enforce);
+
+    const observer = new MutationObserver(enforce);
+    observer.observe(document.body, {
+      subtree:true,
+      attributes:true,
+      attributeFilter:['class','style']
+    });
+
+    [200,500,1000,2000,4000].forEach(t => setTimeout(enforce,t));
   }
 
   async function install(){
@@ -15472,64 +15649,89 @@ import {
     installed = true;
 
     /*
-     * Load shared state before normal application interaction.
-     * This is in-memory only; no localStorage for these two domains.
+     * Initial Firestore load occurs before the app is used for shared data.
      */
     try{
-      await Promise.all([
-        loadUsersOnce(),
-        loadProposalsOnce()
+      const [userSnap, proposalSnap] = await Promise.all([
+        getDocs(collection(gf.db, USERS)),
+        getDocs(collection(gf.db, PROPOSALS))
       ]);
+
+      const userMap = new Map();
+
+      userSnap.docs.forEach(d => {
+        const x = d.data() || {};
+        const id = String(x.legacyId || x.id || x.name || d.id).trim();
+        if(!id) return;
+
+        const row = { ...x, id };
+        const previous = userMap.get(id);
+
+        if(!previous || d.id === id){
+          userMap.set(id,row);
+        }
+      });
+
+      users = [...userMap.values()];
+
+      proposals = proposalSnap.docs.map(d => {
+        const x = d.data() || {};
+        return { ...x, id:String(x.id || d.id) };
+      }).filter(p => proposalId(p));
+
+      usersReady = true;
+      proposalsReady = true;
+
+      installDb();
+      installProposalDb();
+      installNormalize();
+      installLogin();
+
+      startUsersRealtime();
+      startProposalsRealtime();
+      startTopbarGuard();
+
+      /*
+       * If the user is already logged in via an older session, update the
+       * visible header from Firestore without using localStorage.
+       */
+      try{
+        const current = app.auth.currentUser;
+
+        if(current){
+          const fresh = users.find(u => userId(u) === userId(current));
+
+          if(fresh){
+            app.auth.currentUser = {
+              ...current,
+              ...fresh
+            };
+            refreshTopbar();
+          }
+        }
+      }catch(_){}
+
+      console.log(
+        '[GNP v27] FIRESTORE-FIRST ACTIVE:',
+        'users=',users.length,
+        'proposals=',proposals.length
+      );
+
+      return true;
     }catch(error){
-      console.error('[GNP v26] initial Firestore load failed:', error);
+      console.error('[GNP v27] initial Firestore load failed:', error);
       installed = false;
       return false;
     }
-
-    patchDb();
-    patchAI();
-    patchNormalize();
-    patchLogin();
-
-    startRealtime();
-
-    /*
-     * If an existing logged-in Firebase user is restored, merge their
-     * Firestore profile into the visible user and refresh the top bar.
-     */
-    try{
-      if(gf.auth?.currentUser){
-        const current = app.auth.currentUser;
-        if(current){
-          const latest = users.find(u => userId(u) === userId(current));
-          if(latest){
-            app.auth.currentUser = { ...current, ...latest };
-            refreshTopBar();
-          }
-        }
-      }
-    }catch(_){}
-
-    /*
-     * Ensure the top bar is shown even on mobile after initSystem().
-     */
-    try{
-      if(app.auth.currentUser){
-        app.ui.initSystem();
-        refreshTopBar();
-      }
-    }catch(_){}
-
-    console.log('[GNP v26] Firestore-first shared data ACTIVE');
-    return true;
   }
 
   let tries=0;
+
   const timer=setInterval(()=>{
     install().then(ok=>{
       if(ok || ++tries>300) clearInterval(timer);
     }).catch(error=>{
-      console.error('[GNP v26] install tick failed:',error);
+      console.error('[GNP v27] install tick error:',error);
       if(++tries>300) clearInterval(timer);
     });
   },100);
