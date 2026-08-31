@@ -14963,4 +14963,49 @@ import { collection, getDocs, setDoc, serverTimestamp } from "https://www.gstati
 })();
 </script>
 
+
+<!-- FINAL LOGIN HANG SAFETY PATCH: do not let Firebase initialization block the legacy login UI. -->
+<script id="gnp-final-login-hang-fix">
+(function(){
+  'use strict';
+  var started=false;
+  function install(){
+    if(started || !window.app || !app.auth || !app.db || !app.ui) return false;
+    started=true;
+    var auth=app.auth;
+    if(auth.__gnpFinalLoginHangFix) return true;
+    auth.__gnpFinalLoginHangFix=true;
+    var oldLogin=auth.login;
+    auth.login=function(){
+      var id=(document.getElementById('login-id')||{}).value||'';
+      var pw=(document.getElementById('login-pw')||{}).value||'';
+      id=String(id).trim();
+      if(!id || !pw){ alert('로그인 ID와 비밀번호를 입력해 주세요.'); return; }
+      try{
+        var users=typeof auth.normalizeUsers==='function' ? auth.normalizeUsers(app.db.getUsers()) : (app.db.getUsers()||[]);
+        var user=users.find(function(u){ return String(u.id)===id && String(u.pw||'')===pw; });
+        if(user){
+          auth.currentUser=user;
+          app.ui.initSystem();
+          return;
+        }
+      }catch(e){ console.warn('[GNP] local login fallback failed',e); }
+      // 기존 로그인 로직은 로컬 회원이 없는 경우에만 사용합니다.
+      try{
+        if(typeof oldLogin==='function') return oldLogin.apply(auth,arguments);
+      }catch(e){ alert('로그인에 실패했습니다.'); console.error(e); }
+    };
+    return true;
+  }
+  function boot(){
+    if(install()) return;
+    var tries=0;
+    var timer=setInterval(function(){
+      if(install() || ++tries>100) clearInterval(timer);
+    },100);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true});
+  else boot();
+})();
+</script>
 </html>
