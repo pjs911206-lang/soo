@@ -15176,4 +15176,271 @@ import {
 })();
 </script>
 
+
+
+<!-- FINAL SAFETY PROPOSAL DELETE + DETAIL STATUS PATCH v15
+     - 삭제 시 Firestore 문서도 즉시 삭제되도록 연결
+     - 전체보기 모달의 '조치' 입력칸을 안전제안관리의 상태 드롭다운으로 변경
+     - 상태 변경은 기존 app.ai1.saveData()를 통해 Firebase에도 즉시 반영
+     - 그 외 기능은 변경하지 않음
+-->
+<style id="gnp-ai1-detail-status-v15">
+  #ai1-detail-status-select {
+    width: 100%;
+    min-height: 42px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 9px 12px;
+    background: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    outline: none;
+  }
+  #ai1-detail-status-select:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+  }
+</style>
+
+<script id="gnp-ai1-detail-status-v15">
+(function(){
+  'use strict';
+
+  const STATUS_OPTIONS = [
+    ['검토대기', '검토대기'],
+    ['접수', '접수'],
+    ['검토중', '검토중'],
+    ['승인', '승인'],
+    ['반려', '반려'],
+    ['조치중', '조치중'],
+    ['조치완료', '조치완료'],
+    ['완료', '완료']
+  ];
+
+  function getItem(id){
+    try {
+      const rows = window.app?.ai1?.getData?.() || [];
+      return rows.find(x => String(x?.id) === String(id)) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function saveStatus(id, status){
+    const ai = window.app?.ai1;
+    if(!ai?.getData || !ai?.saveData) return;
+
+    const rows = ai.getData();
+    const item = rows.find(x => String(x?.id) === String(id));
+    if(!item) return;
+
+    item.status = status;
+    ai.saveData(rows);
+
+    try { ai.render?.(); } catch(_) {}
+
+    const select = document.getElementById('ai1-detail-status-select');
+    if(select) select.value = item.status || '검토대기';
+  }
+
+  function replaceActionField(){
+    const modal = document.getElementById('ai1-detail-modal');
+    if(!modal) return false;
+
+    /*
+     * 기존 전체보기 모달의 '조치' 입력 요소를 찾아서
+     * 안전제안 관리에서 사용하는 상태 선택 방식으로 교체합니다.
+     */
+    const candidates = [
+      '#ai1-detail-action',
+      '#ai1-detail-measure-action',
+      '#ai1-action-input',
+      'textarea[data-ai1-action]',
+      'textarea[name="ai1-action"]'
+    ];
+
+    let old = null;
+    for(const selector of candidates){
+      const el = modal.querySelector(selector);
+      if(el){ old = el; break; }
+    }
+
+    if(!old){
+      const labels = [...modal.querySelectorAll('label, p, div, span')];
+      const label = labels.find(el => String(el.textContent || '').trim() === '조치');
+      if(label){
+        old = label.parentElement?.querySelector('textarea, input');
+      }
+    }
+
+    if(!old) return false;
+
+    if(old.id === 'ai1-detail-status-select') return true;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'mt-2';
+
+    const select = document.createElement('select');
+    select.id = 'ai1-detail-status-select';
+    select.setAttribute('aria-label', '안전제안 상태');
+    STATUS_OPTIONS.forEach(([value, label]) => {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = label;
+      select.appendChild(opt);
+    });
+
+    const id =
+      modal.dataset?.proposalId ||
+      modal.getAttribute('data-proposal-id') ||
+      modal.querySelector('[data-proposal-id]')?.getAttribute('data-proposal-id');
+
+    if(id){
+      const item = getItem(id);
+      if(item) select.value = item.status || '검토대기';
+    }
+
+    select.addEventListener('change', () => {
+      const detailId =
+        modal.dataset?.proposalId ||
+        modal.getAttribute('data-proposal-id') ||
+        select.dataset.proposalId;
+
+      if(!detailId) return;
+      saveStatus(detailId, select.value);
+    });
+
+    wrap.appendChild(select);
+    old.replaceWith(wrap);
+
+    return true;
+  }
+
+  function observeModal(){
+    if(window.__gnpAi1DetailStatusObserverV15) return;
+
+    const observer = new MutationObserver(() => {
+      const modal = document.getElementById('ai1-detail-modal');
+      if(!modal) return;
+
+      const open =
+        !modal.classList.contains('hidden') &&
+        getComputedStyle(modal).display !== 'none';
+
+      if(open) {
+        replaceActionField();
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+
+    window.__gnpAi1DetailStatusObserverV15 = observer;
+  }
+
+  function hookExistingOpeners(){
+    const ai = window.app?.ai1;
+    if(!ai || window.__gnpAi1DetailStatusOpenHookV15) return false;
+
+    const names = ['openDetailModal', 'openDetail', 'showDetail', 'openMeasureModal'];
+    for(const name of names){
+      if(typeof ai[name] !== 'function') continue;
+
+      const original = ai[name].bind(ai);
+
+      ai[name] = function(id){
+        const result = original.apply(this, arguments);
+
+        setTimeout(() => {
+          const modal = document.getElementById('ai1-detail-modal');
+          if(modal){
+            modal.dataset.proposalId = String(id);
+            replaceActionField();
+          }
+        }, 0);
+
+        return result;
+      };
+    }
+
+    window.__gnpAi1DetailStatusOpenHookV15 = true;
+    return true;
+  }
+
+  function start(){
+    hookExistingOpeners();
+    observeModal();
+  }
+
+  let tries = 0;
+  const timer = setInterval(() => {
+    start();
+    if(window.app?.ai1 || ++tries > 200){
+      if(tries > 200) clearInterval(timer);
+    }
+  }, 100);
+})();
+</script>
+
+<script type="module" id="gnp-ai1-delete-firebase-v15">
+import { deleteDoc, doc } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+
+(function(){
+  'use strict';
+
+  const COL = 'safetyProposals';
+  let installed = false;
+
+  function install(){
+    const ai = window.app?.ai1;
+    const gf = window.gnpFirebase;
+
+    if(!ai || !gf?.db || !gf?.auth) return false;
+    if(typeof ai.remove !== 'function') return false;
+    if(installed) return true;
+
+    installed = true;
+
+    const originalRemove = ai.remove.bind(ai);
+
+    /*
+     * 기존 삭제 UI/확인창/render 기능은 그대로 실행하고,
+     * 삭제된 ID에 해당하는 Firestore 문서만 즉시 삭제합니다.
+     */
+    ai.remove = async function(id){
+      const result = originalRemove(id);
+
+      try {
+        const uid = gf.auth.currentUser?.uid;
+        if(uid && id){
+          await deleteDoc(doc(gf.db, COL, String(id)));
+          console.log('[GNP v15] 안전제안 Firestore 즉시 삭제:', id);
+        }
+      } catch(error){
+        console.error(
+          '[GNP v15] 안전제안 Firestore 삭제 실패:',
+          error?.code || error?.message || error
+        );
+        alert('로컬에서는 삭제되었지만 서버 연동 삭제에 실패했습니다. 인터넷 연결을 확인해 주세요.');
+      }
+
+      return result;
+    };
+
+    console.log('[GNP v15] 안전제안 삭제 Firebase 연동 완료');
+    return true;
+  }
+
+  let tries = 0;
+  const timer = setInterval(() => {
+    if(install() || ++tries > 200){
+      clearInterval(timer);
+    }
+  }, 100);
+})();
+</script>
+
 </html>
