@@ -15211,4 +15211,246 @@ import { collection, getDocs, setDoc, serverTimestamp } from "https://www.gstati
   else boot();
 })();
 </script>
+
+
+<!-- FINAL PROPOSAL SAVE BRIDGE: patch the actual final app.ai1.save() implementation only. -->
+<script type="module" id="gnp-final-proposal-save-bridge">
+import {
+  collection, getDocs, setDoc, doc, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+
+(function(){
+  'use strict';
+
+  const KEY = 'gnp_ai1_proposals';
+  const COL = 'safetyProposals';
+  const MAX_PHOTO = 700000;
+
+  let installed = false;
+  let attempts = 0;
+  let pushing = false;
+
+  const local = () => {
+    try {
+      const rows = JSON.parse(localStorage.getItem(KEY) || '[]');
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const photoSize = value => typeof value === 'string' ? value.length : 0;
+
+  function compress(dataUrl, max = MAX_PHOTO) {
+    return new Promise(resolve => {
+      if (!dataUrl || photoSize(dataUrl) <= max) return resolve(dataUrl || '');
+
+      const img = new Image();
+
+      img.onload = () => {
+        let scale = Math.min(
+          1,
+          1000 / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height)
+        );
+        let quality = 0.65;
+        const canvas = document.createElement('canvas');
+
+        for (let i = 0; i < 10; i++) {
+          canvas.width = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+          canvas.height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
+
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          const out = canvas.toDataURL('image/jpeg', quality);
+          if (photoSize(out) <= max) return resolve(out);
+
+          if (quality > 0.40) quality -= 0.05;
+          else scale *= 0.80;
+        }
+
+        resolve(canvas.toDataURL('image/jpeg', 0.38));
+      };
+
+      img.onerror = () => resolve('');
+      img.src = dataUrl;
+    });
+  }
+
+  async function cloudRow(row) {
+    const out = { ...(row || {}) };
+
+    if (photoSize(out.photoDataUrl) > MAX_PHOTO) {
+      out.photoDataUrl = await compress(out.photoDataUrl);
+    }
+
+    if (photoSize(out.improvementPhotoDataUrl) > MAX_PHOTO) {
+      out.improvementPhotoDataUrl = await compress(out.improvementPhotoDataUrl);
+    }
+
+    Object.keys(out).forEach(key => {
+      if (out[key] === undefined) delete out[key];
+    });
+
+    return out;
+  }
+
+  async function pushAll() {
+    const gf = window.gnpFirebase;
+    if (!gf?.db || !gf?.auth?.currentUser || pushing) return false;
+
+    pushing = true;
+
+    try {
+      const rows = local();
+
+      for (const row of rows) {
+        const id = String(row?.id || '').trim();
+        if (!id) continue;
+
+        const payload = await cloudRow(row);
+
+        await setDoc(
+          doc(gf.db, COL, id),
+          {
+            ...payload,
+            id,
+            _syncUpdatedAt: serverTimestamp(),
+            _syncUpdatedBy: gf.auth.currentUser.uid
+          },
+          { merge: true }
+        );
+      }
+
+      console.log('[GNP] 안전제안 Firebase 업로드 완료:', rows.length);
+      return true;
+    } catch (error) {
+      console.error(
+        '[GNP] 안전제안 Firebase 업로드 실패:',
+        error?.code || error?.message || error
+      );
+      return false;
+    } finally {
+      pushing = false;
+    }
+  }
+
+  async function pullAll() {
+    const gf = window.gnpFirebase;
+    if (!gf?.db || !gf?.auth?.currentUser) return false;
+
+    try {
+      const snap = await getDocs(collection(gf.db, COL));
+      const cloudRows = snap.docs.map(d => ({
+        ...(d.data() || {}),
+        id: String(d.data()?.id || d.id)
+      })).filter(x => String(x.id || '').trim());
+
+      const current = local();
+      const byId = new Map();
+
+      current.forEach(row => {
+        const id = String(row?.id || '').trim();
+        if (id) byId.set(id, row);
+      });
+
+      cloudRows.forEach(row => {
+        const id = String(row?.id || '').trim();
+        if (id) byId.set(id, row);
+      });
+
+      const merged = [...byId.values()];
+      localStorage.setItem(KEY, JSON.stringify(merged));
+
+      try { window.app?.ai1?.render?.(); } catch (_) {}
+
+      console.log('[GNP] 안전제안 Firebase 다운로드 완료:', cloudRows.length);
+      return true;
+    } catch (error) {
+      console.error(
+        '[GNP] 안전제안 Firebase 다운로드 실패:',
+        error?.code || error?.message || error
+      );
+      return false;
+    }
+  }
+
+  function install() {
+    const app = window.app;
+    if (!app?.ai1 || typeof app.ai1.save !== 'function') return false;
+    if (!window.gnpFirebase?.db || !window.gnpFirebase?.auth) return false;
+    if (installed) return true;
+
+    installed = true;
+
+    const originalSave = app.ai1.save.bind(app.ai1);
+
+    /*
+     * 현재 파일의 최종 app.ai1.save()는 app.ai1.saveData()를 거치지 않고
+     * writeProposals()/localStorage에 직접 저장합니다.
+     * 따라서 이전 sync patch가 저장 이벤트를 잡지 못했습니다.
+     *
+     * 여기서 실제 최종 save 함수를 감싸서:
+     * 1) 기존 저장/사진/편집 기능은 그대로 실행
+     * 2) 저장이 끝난 직후 Firebase에 동일 데이터를 업로드
+     * 로 처리합니다.
+     */
+    app.ai1.save = async function() {
+      const result = await originalSave.apply(this, arguments);
+
+      /*
+       * Firebase 로그인 세션이 아직 생기지 않았다면,
+       * 기존 로그인 bridge의 onAuthStateChanged가 생겼을 때
+       * 다시 업로드하도록 한 번 더 시도합니다.
+       */
+      pushAll().catch(() => {});
+
+      return result;
+    };
+
+    /*
+     * 로그인 직후 기존 Firebase 자료도 즉시 내려받아 PC/모바일 간
+     * 동일 목록을 만들도록 합니다.
+     */
+    if (window.gnpFirebase.auth.currentUser) {
+      pullAll()
+        .then(() => pushAll())
+        .catch(() => {});
+    }
+
+    console.log('[GNP] 최종 안전제안 저장 브리지 설치 완료');
+    return true;
+  }
+
+  /*
+   * 모든 기존 스크립트가 먼저 app/gnpFirebase를 만든 뒤 설치합니다.
+   * 로그인 화면에서는 Firebase 호출을 하지 않습니다.
+   */
+  const timer = setInterval(() => {
+    if (install() || ++attempts > 200) {
+      clearInterval(timer);
+    }
+  }, 100);
+
+  /*
+   * Firebase 로그인 세션이 새로 생기면 기존 로컬 제안도 올리고
+   * 다른 기기에서 올라온 제안도 내려받습니다.
+   */
+  const authTimer = setInterval(() => {
+    const auth = window.gnpFirebase?.auth;
+    const app = window.app;
+    if (!auth?.currentUser || !app?.ai1) return;
+
+    clearInterval(authTimer);
+
+    pullAll()
+      .then(() => pushAll())
+      .catch(() => {});
+  }, 250);
+
+})();
+</script>
+
 </html>
