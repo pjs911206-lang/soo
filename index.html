@@ -15453,4 +15453,160 @@ import {
 })();
 </script>
 
+
+
+<!-- FINAL REALTIME PROPOSAL SYNC: Firestore onSnapshot is the source of truth for the proposal list. -->
+<script type="module" id="gnp-final-proposal-realtime-v11">
+import {
+  collection,
+  onSnapshot
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+import {
+  onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+
+(function(){
+  'use strict';
+
+  const KEY = 'gnp_ai1_proposals';
+  const COL = 'safetyProposals';
+
+  let attached = false;
+  let unsubscribe = null;
+  let lastSignature = '';
+
+  function readLocal() {
+    try {
+      const rows = JSON.parse(localStorage.getItem(KEY) || '[]');
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function writeLocal(rows) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(rows || []));
+    } catch (e) {
+      console.error('[GNP realtime] localStorage write failed:', e);
+    }
+  }
+
+  function normalizeDoc(snap) {
+    const data = snap.data() || {};
+    return {
+      ...data,
+      id: String(data.id || snap.id)
+    };
+  }
+
+  function signature(rows) {
+    try {
+      return JSON.stringify(
+        rows.map(x => ({
+          id: x.id,
+          updatedAt: x._syncUpdatedAt || x.updatedAt || x.date || '',
+          status: x.status || '',
+          measure: x.measure || ''
+        })).sort((a,b) => String(a.id).localeCompare(String(b.id)))
+      );
+    } catch {
+      return String(Date.now());
+    }
+  }
+
+  function refreshProposalUI() {
+    try {
+      const ai = window.app?.ai1;
+      if (ai?.render) ai.render();
+    } catch (e) {
+      console.warn('[GNP realtime] render skipped:', e);
+    }
+  }
+
+  function attachToFirebase() {
+    if (attached) return true;
+
+    const gf = window.gnpFirebase;
+    if (!gf?.db || !gf?.auth) return false;
+
+    attached = true;
+
+    onAuthStateChanged(gf.auth, user => {
+      if (unsubscribe) {
+        try { unsubscribe(); } catch (_) {}
+        unsubscribe = null;
+      }
+
+      if (!user) {
+        lastSignature = '';
+        return;
+      }
+
+      /*
+       * 핵심 실시간 수신:
+       * PC와 모바일이 동일한 safetyProposals 컬렉션을 구독합니다.
+       * 새 제안/수정/삭제가 Firestore에 반영되는 즉시 snapshot이 들어옵니다.
+       */
+      unsubscribe = onSnapshot(
+        collection(gf.db, COL),
+        snapshot => {
+          const cloudRows = snapshot.docs
+            .map(normalizeDoc)
+            .filter(row => String(row.id || '').trim());
+
+          /*
+           * Firestore를 안전제안 목록의 단일 기준으로 사용합니다.
+           * 이제 한 기기에서 저장한 직후 다른 기기의 관리 목록도
+           * 새로고침 없이 즉시 갱신됩니다.
+           */
+          const sig = signature(cloudRows);
+
+          if (sig === lastSignature) return;
+          lastSignature = sig;
+
+          writeLocal(cloudRows);
+          refreshProposalUI();
+
+          console.log(
+            '[GNP realtime] 안전제안 실시간 반영:',
+            cloudRows.length,
+            '건'
+          );
+        },
+        error => {
+          console.error(
+            '[GNP realtime] Firestore onSnapshot 오류:',
+            error?.code || error?.message || error
+          );
+
+          /*
+           * Firestore SDK가 네트워크 복구 후 다시 연결할 수 있도록
+           * 앱 전체를 reload하지 않습니다.
+           */
+        }
+      );
+    });
+
+    return true;
+  }
+
+  let tries = 0;
+  const timer = setInterval(() => {
+    if (attachToFirebase() || ++tries > 150) {
+      clearInterval(timer);
+    }
+  }, 100);
+
+  /*
+   * 탭이 백그라운드였다가 다시 활성화될 때 현재 스냅샷을 기준으로
+   * UI를 다시 한 번 그립니다. Firestore listener 자체는 유지합니다.
+   */
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshProposalUI();
+  });
+
+})();
+</script>
+
 </html>
