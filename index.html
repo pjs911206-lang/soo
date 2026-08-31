@@ -11805,10 +11805,7 @@ const app = {
       childList: true, subtree: true, characterData: true
     });
 
-    new MutationObserver(function () {
-      window.requestAnimationFrame(run);
-    }).observe(document.body, { childList: true, subtree: true });
-
+    /* 전체 body 감시는 제거합니다. 로그인 화면/드롭다운 등 다른 DOM 변경마다 재계산하지 않습니다. */
     window.addEventListener('resize', fitApprovalDates);
   });
 
@@ -13482,6 +13479,7 @@ const app = {
   }
 
   function refreshPanel() {
+    if (!isLegacyAdmin()) return;
     const panel = ensurePanel();
     if (!panel) return;
 
@@ -13946,7 +13944,8 @@ const app = {
         internalEmail,
         deleteMemberAccount: deleteFirebaseMemberAccount
       };
-      ensurePanel();
+      /* Firebase 관리 패널은 admin 로그인 후에만 필요하므로 초기 로딩에서는 생성하지 않습니다. */
+      if (isLegacyAdmin()) ensurePanel();
       const status = document.getElementById("firebase-v1-status");
       if (status) { status.textContent = "Firebase SDK 연결 완료"; status.style.color = "#047857"; }
       writeLog("Firebase SDK 초기화 완료");
@@ -13970,9 +13969,11 @@ const app = {
   }
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => initFirebaseBridge(), { once: true });
+    document.addEventListener("DOMContentLoaded", () => {
+      setTimeout(() => initFirebaseBridge(), 0);
+    }, { once: true });
   } else {
-    initFirebaseBridge();
+    setTimeout(() => initFirebaseBridge(), 0);
   }
 
   window.addEventListener("storage", (event) => {
@@ -14557,8 +14558,7 @@ const app = {
   document.addEventListener('DOMContentLoaded',arrange);
   window.addEventListener('load',arrange);
   [50,200,500,1000,2000].forEach(t=>setTimeout(arrange,t));
-  const mo=new MutationObserver(()=>arrange());
-  mo.observe(document.body,{childList:true,subtree:true});
+  /* body 전체 MutationObserver는 로그인 초기화/모바일 성능에 불필요하므로 사용하지 않습니다. */
 })();
 </script>
 <script type="module" id="gnp-v4-proposal-sync">
@@ -14907,9 +14907,7 @@ import { collection, getDocs, setDoc, serverTimestamp } from "https://www.gstati
   wait(() => window.app?.auth?.normalizeUsers && window.app?.db?.getUsers && window.app?.db?.saveUsers)
     .then(ok => { if (ok) start().catch(console.warn); });
 
-  new MutationObserver(() => {
-    try { patchNormalize(); forceLocalExecutives(); patchSaveButton(); patchRoleSelects(); } catch(e) {}
-  }).observe(document.body, {childList:true, subtree:true});
+  /* body 전체 MutationObserver 제거: 로그인/메뉴 DOM 변경마다 권한 정규화를 반복하지 않습니다. */
 })();
 </script>
 
