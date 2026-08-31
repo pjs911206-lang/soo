@@ -14549,6 +14549,237 @@ const app = {
   document.addEventListener('click', () => setTimeout(boot, 50), true);
 })();
 </script>
+
+<!-- FINAL PATCH v3: photo buttons + cross-device proposal sync only -->
+<style id="gnp-final-photo-buttons-v3">
+@media (max-width: 768px) {
+  /* 기존 모바일에서 별도로 생성되던 2개 버튼 제거 */
+  #ai1-mobile-photo-actions { display:none !important; }
+
+  /* 현장사진 버튼은 정확히 3개만 1열 */
+  #ai1-photo-actions {
+    display:grid !important;
+    grid-template-columns:repeat(3,minmax(0,1fr)) !important;
+    gap:6px !important;
+    width:100% !important;
+    overflow:hidden !important;
+  }
+  #ai1-photo-actions > button {
+    display:flex !important;
+    min-width:0 !important;
+    width:100% !important;
+    height:42px !important;
+    padding:0 4px !important;
+    margin:0 !important;
+    align-items:center !important;
+    justify-content:center !important;
+    gap:4px !important;
+    border-radius:10px !important;
+    font-size:11px !important;
+    white-space:nowrap !important;
+    overflow:hidden !important;
+  }
+  #ai1-photo-actions > button span {
+    min-width:0 !important;
+    overflow:hidden !important;
+    text-overflow:ellipsis !important;
+    white-space:nowrap !important;
+  }
+  #ai1-files, #ai1-camera { display:none !important; }
+}
+</style>
+<script type="module" id="gnp-final-proposal-sync-v3">
+import { collection, getDocs, setDoc, doc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+import { signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+
+(() => {
+  const KEY='gnp_ai1_proposals';
+  const COL='safetyProposals';
+  const DOMAIN='gnp-hse.firebaseapp.com';
+  const MAX_PHOTO=300000;
+  let db=null, auth=null, unsubscribe=null, started=false, writeQueue=Promise.resolve();
+
+  const clone = v => { try { return JSON.parse(JSON.stringify(v ?? [])); } catch { return []; } };
+  const getLocal = () => { try { const x=JSON.parse(localStorage.getItem(KEY)||'[]'); return Array.isArray(x)?x:[]; } catch { return []; } };
+  const putLocal = rows => { try { localStorage.setItem(KEY,JSON.stringify(rows||[])); } catch(e) { console.warn('제안 로컬 저장 실패',e); } };
+  const id = x => String(x?.id||'');
+
+  function mergeById(a,b){
+    const m=new Map();
+    [...(a||[]),...(b||[])].forEach(x=>{ if(id(x)) m.set(id(x),x); });
+    return [...m.values()];
+  }
+
+  async function hashId(value){
+    const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(value)));
+    return Array.from(new Uint8Array(buf)).map(x=>x.toString(16).padStart(2,'0')).join('');
+  }
+
+  async function ensureAuth(){
+    if(auth?.currentUser) return true;
+    const legacy=window.app?.auth?.currentUser;
+    const legacyId=String(legacy?.id||legacy?.name||'').trim();
+    const pw=String(legacy?.pw||'');
+    if(!legacyId || !pw) return false;
+    try{
+      const h=await hashId(legacyId);
+      const email=`u-${h.slice(0,32)}@${DOMAIN}`;
+      await signInWithEmailAndPassword(auth,email,pw);
+      return !!auth.currentUser;
+    }catch(e){
+      console.warn('제안 Firebase 인증 실패',e?.code||e?.message||e);
+      return false;
+    }
+  }
+
+  function size(v){ return typeof v==='string' ? v.length : 0; }
+  function compress(v,max=MAX_PHOTO){
+    return new Promise(resolve=>{
+      if(!v || size(v)<=max) return resolve(v||'');
+      const img=new Image();
+      img.onload=()=>{
+        let scale=Math.min(1,720/Math.max(img.naturalWidth||img.width,img.naturalHeight||img.height));
+        let quality=.58;
+        const canvas=document.createElement('canvas');
+        for(let n=0;n<8;n++){
+          canvas.width=Math.max(1,Math.round((img.naturalWidth||img.width)*scale));
+          canvas.height=Math.max(1,Math.round((img.naturalHeight||img.height)*scale));
+          const ctx=canvas.getContext('2d');
+          ctx.fillStyle='#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+          ctx.drawImage(img,0,0,canvas.width,canvas.height);
+          const out=canvas.toDataURL('image/jpeg',quality);
+          if(size(out)<=max) return resolve(out);
+          if(quality>.4) quality-=.06; else scale*=.78;
+        }
+        resolve(canvas.toDataURL('image/jpeg',.4));
+      };
+      img.onerror=()=>resolve('');
+      img.src=v;
+    });
+  }
+
+  async function cloudRow(row){
+    const x={...(row||{})};
+    if(size(x.photoDataUrl)>MAX_PHOTO) x.photoDataUrl=await compress(x.photoDataUrl);
+    if(size(x.improvementPhotoDataUrl)>MAX_PHOTO) x.improvementPhotoDataUrl=await compress(x.improvementPhotoDataUrl);
+    /* undefined 필드는 Firestore에서 거부될 수 있으므로 제거 */
+    Object.keys(x).forEach(k=>{ if(x[k]===undefined) delete x[k]; });
+    return x;
+  }
+
+  async function readCloud(){
+    const snap=await getDocs(collection(db,COL));
+    return snap.docs.map(d=>({id:String(d.data()?.id||d.id),...(d.data()||{})})).filter(x=>id(x));
+  }
+
+  async function pushRows(rows){
+    if(!db || !auth?.currentUser) return false;
+    const localRows=clone(rows);
+    writeQueue=writeQueue.then(async()=>{
+      const existing=await readCloud();
+      const merged=mergeById(existing,localRows);
+      for(const row of merged){
+        const key=id(row); if(!key) continue;
+        const payload=await cloudRow(row);
+        await setDoc(doc(db,COL,key),{
+          ...payload,
+          id:key,
+          _syncUpdatedAt:serverTimestamp(),
+          _syncUpdatedBy:auth.currentUser.uid
+        },{merge:true});
+      }
+      const latest=await readCloud();
+      putLocal(latest);
+      try{ window.app?.ai1?.render?.(); }catch{}
+      return true;
+    }).catch(e=>{ console.error('안전제안 Firebase 저장 실패',e); return false; });
+    return writeQueue;
+  }
+
+  function bindSave(){
+    const ai=window.app?.ai1;
+    if(!ai || ai.__finalSyncV3Bound) return false;
+    ai.__finalSyncV3Bound=true;
+    const originalGet=ai.getData;
+    ai.getData=()=>getLocal();
+    ai.saveData=function(rows){
+      const next=clone(rows);
+      putLocal(next);
+      try{ ai.render?.(); }catch{}
+      /* 저장 순간에도 인증을 다시 확인하고 즉시 Firebase로 전송 */
+      (async()=>{
+        if(!auth?.currentUser) await ensureAuth();
+        if(auth?.currentUser) await pushRows(next);
+      })();
+      return true;
+    };
+    return true;
+  }
+
+  async function start(){
+    if(started) return true;
+    const gf=window.gnpFirebase;
+    if(!gf?.db || !gf?.auth) return false;
+    db=gf.db; auth=gf.auth;
+    if(!(await ensureAuth())) return false;
+    started=true;
+    try{
+      const cloud=await readCloud();
+      const local=getLocal();
+      const merged=mergeById(cloud,local);
+      putLocal(merged);
+      await pushRows(merged);
+      bindSave();
+      if(unsubscribe) unsubscribe();
+      unsubscribe=onSnapshot(collection(db,COL),snap=>{
+        const rows=snap.docs.map(d=>({id:String(d.data()?.id||d.id),...(d.data()||{})})).filter(x=>id(x));
+        putLocal(rows);
+        try{ window.app?.ai1?.render?.(); }catch{}
+      },e=>console.error('안전제안 실시간 동기화 오류',e));
+      return true;
+    }catch(e){
+      console.error('안전제안 동기화 초기화 실패',e);
+      started=false;
+      return false;
+    }
+  }
+
+  function boot(){
+    bindSave();
+    if(window.gnpFirebase?.db && window.gnpFirebase?.auth){ start(); }
+  }
+  const timer=setInterval(()=>{ bindSave(); start(); if(started) clearInterval(timer); },500);
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
+  window.addEventListener('load',boot);
+})();
+</script>
+
+<script id="gnp-final-photo-cleanup-v3">
+(function(){
+  function clean(){
+    const old=document.getElementById('ai1-mobile-photo-actions');
+    if(old) old.remove();
+    const actions=document.getElementById('ai1-photo-actions');
+    if(!actions) return;
+    /* 혹시 이전 패치가 버튼을 추가했으면 기존 3개 외의 버튼 제거 */
+    const allowed=['ai1-photo-attach-btn','ai1-photo-camera-btn','ai1-photo-edit-btn'];
+    actions.querySelectorAll('button').forEach(b=>{
+      if(!allowed.includes(b.id)) b.remove();
+    });
+    const attach=document.getElementById('ai1-photo-attach-btn');
+    const camera=document.getElementById('ai1-photo-camera-btn');
+    const edit=document.getElementById('ai1-photo-edit-btn');
+    if(attach) attach.querySelector('span')?.replaceChildren(document.createTextNode('첨부하기'));
+    if(camera) camera.querySelector('span')?.replaceChildren(document.createTextNode('사진찍기'));
+    if(edit) edit.querySelector('span')?.replaceChildren(document.createTextNode('편집하기'));
+  }
+  clean();
+  document.addEventListener('DOMContentLoaded',clean);
+  window.addEventListener('load',clean);
+  [100,300,700,1200,2000].forEach(t=>setTimeout(clean,t));
+})();
+</script>
+
 </body>
 
 <!-- FINAL DATA SYNC ONLY: preserve latest UI, synchronize proposals through Firebase -->
