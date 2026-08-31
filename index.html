@@ -155,27 +155,6 @@
     .ai1-photo-action-btn{height:38px;padding:0 5px;font-size:11px;gap:4px;}
   }
 </style>
-
-<script id="gnp-login-fail-open">
-(function(){
-  // Firebase/CDN 지연이 로그인 화면 자체를 가리는 것을 방지합니다.
-  function unlock(){
-    try{
-      const layer=document.getElementById('auth-layer');
-      const login=document.getElementById('login-box');
-      if(layer && !layer.classList.contains('hidden')){
-        layer.style.display='flex';
-        layer.style.visibility='visible';
-        layer.style.opacity='1';
-      }
-      if(login){ login.classList.remove('hidden'); login.style.display='block'; }
-    }catch(_){}
-  }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',unlock,{once:true}); else unlock();
-  setTimeout(unlock,1000);
-  setTimeout(unlock,3000);
-})();
-</script>
 </head>
 <body class="h-screen flex overflow-hidden">
 <div id="auth-layer" class="fixed inset-0 z-[100] gnp-blue flex items-center justify-center">
@@ -10304,7 +10283,7 @@ const app = {
   app.auth.normalizeUsers = function(items) {
     const list = Array.isArray(items) ? items : [];
     const validTeams = applyTeams();
-    const validRoles = ['반원','반장','팀장','HSE','과장','대리','부장','사원','조장','차장','파트장','임원'];
+    const validRoles = ['반원','반장','팀장','HSE'];
     let changed = false;
     let root = list.find(u => u && u.id === 'admin');
     if(!root) {
@@ -13746,21 +13725,14 @@ const app = {
     return { firebaseUid: firebaseUser.uid, ...snap.data() };
   }
 
-  function withTimeout(promise, ms, message = "Firebase 응답 시간이 초과되었습니다.") {
-    return Promise.race([
-      promise,
-      new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error(message), { code: "timeout" })), ms))
-    ]);
-  }
-
   async function firebaseLogin() {
     const id = document.getElementById("login-id")?.value.trim();
     const pw = document.getElementById("login-pw")?.value || "";
     if (!id || !pw) throw Object.assign(new Error("로그인 ID와 비밀번호를 입력해 주세요."), { code: "missing-login" });
 
     const email = await internalEmail(id);
-    const credential = await withTimeout(signInWithEmailAndPassword(fbAuth, email, pw), 7000, "Firebase 로그인 응답이 지연되고 있습니다.");
-    const profile = await withTimeout(loadFirebaseProfile(credential.user), 5000, "Firebase 회원정보 조회가 지연되고 있습니다.");
+    const credential = await signInWithEmailAndPassword(fbAuth, email, pw);
+    const profile = await loadFirebaseProfile(credential.user);
     if (!profile) {
       const localRows = getLegacyUsers();
       const localUser = localRows.find(u => String(u.id) === String(id));
@@ -13805,7 +13777,7 @@ const app = {
       const pw = document.getElementById("login-pw")?.value || "";
       if (!id || !pw) return alert("로그인 ID와 비밀번호를 입력해 주세요.");
       try {
-        const user = await withTimeout(firebaseLogin(), 9000, "Firebase 로그인 시간이 초과되었습니다. 로컬 로그인으로 전환합니다.");
+        const user = await firebaseLogin();
         legacyApp.auth.currentUser = user;
         try { legacyApp.auth.syncCurrentUser?.(); } catch (_) { }
         legacyApp.ui.initSystem();
@@ -13938,14 +13910,13 @@ const app = {
       if (status) { status.textContent = "Firebase SDK 연결 완료"; status.style.color = "#047857"; }
       writeLog("Firebase SDK 초기화 완료");
 
-      // Firebase는 화면 표시를 막지 않습니다. 원본 앱이 준비되면 백그라운드에서 로그인 기능만 패치합니다.
-      const patchDeadline = Date.now() + 5000;
-      while (!(getLegacyApp()?.auth && getLegacyApp()?.db) && Date.now() < patchDeadline) {
+      // app은 원본 스크립트들이 먼저 초기화하므로 아주 짧게 기다린 뒤 patch합니다.
+      const deadline = Date.now() + 15000;
+      while (!(getLegacyApp()?.auth && getLegacyApp()?.db)) {
+        if (Date.now() > deadline) throw new Error("기존 앱 초기화가 완료되지 않았습니다.");
         await new Promise(resolve => setTimeout(resolve, 100));
       }
-      if (getLegacyApp()?.auth && getLegacyApp()?.db) {
-        await patchAuth();
-      }
+      await patchAuth();
       refreshPanel();
       return true;
     } catch (error) {
@@ -14373,8 +14344,134 @@ const app = {
 
 
 <!-- MOBILE CAMERA BUTTON RESTORE ONLY -->
+<style id="gnp-mobile-camera-restore-style">
+@media (max-width: 768px) {
+  #ai1-mobile-photo-actions {
+    display:grid !important;
+    grid-template-columns:1fr 1fr !important;
+    gap:8px !important;
+    width:100% !important;
+    margin-top:8px !important;
+  }
+  #ai1-mobile-photo-actions > button {
+    min-height:44px !important;
+    width:100% !important;
+    border-radius:12px !important;
+    font-weight:800 !important;
+    white-space:nowrap !important;
+  }
+  #ai1-files {
+    min-height:44px !important;
+    width:100% !important;
+  }
+}
+</style>
+<script id="gnp-mobile-camera-restore-script">
+(function(){
+  function restore(){
+    if (window.innerWidth > 768) return;
+    const input=document.getElementById('ai1-files');
+    if(!input) return;
+
+    let wrap=document.getElementById('ai1-mobile-photo-actions');
+    if(!wrap){
+      wrap=document.createElement('div');
+      wrap.id='ai1-mobile-photo-actions';
+      wrap.innerHTML=
+        '<button type="button" id="ai1-mobile-gallery-btn" class="bg-slate-100 text-slate-800 border border-slate-300"><i class="fas fa-images mr-2"></i>사진첩에서 선택</button>'+
+        '<button type="button" id="ai1-mobile-camera-btn" class="bg-sky-700 text-white"><i class="fas fa-camera mr-2"></i>사진 찍기</button>';
+      input.parentNode.insertBefore(wrap,input.nextSibling);
+
+      const gallery=document.getElementById('ai1-mobile-gallery-btn');
+      const camera=document.getElementById('ai1-mobile-camera-btn');
+
+      gallery.onclick=function(){
+        input.removeAttribute('capture');
+        input.click();
+      };
+
+      camera.onclick=function(){
+        input.setAttribute('capture','environment');
+        input.click();
+      };
+
+      input.addEventListener('change',function(){
+        // 다음 파일 선택은 기본적으로 사진첩 선택으로 유지
+        input.removeAttribute('capture');
+      });
+    }
+    wrap.classList.remove('hidden');
+    wrap.style.display='grid';
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',restore);
+  }else restore();
+  window.addEventListener('load',restore);
+  setTimeout(restore,300);
+  setTimeout(restore,1000);
+})();
+</script>
 
 
+<style id="gnp-mobile-photo-buttons-size-only">
+@media (max-width: 768px) {
+  #ai1-mobile-photo-actions {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+    width: 100% !important;
+    margin-top: 8px !important;
+  }
+
+  #ai1-mobile-photo-actions > button {
+    flex: 1 1 0 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: 42px !important;
+    min-height: 42px !important;
+    padding: 0 8px !important;
+    margin: 0 !important;
+    border-radius: 10px !important;
+    font-size: 13px !important;
+    line-height: 1 !important;
+    font-weight: 700 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    box-sizing: border-box !important;
+  }
+
+  #ai1-mobile-photo-actions > button i {
+    margin-right: 5px !important;
+    font-size: 13px !important;
+  }
+
+  #ai1-files {
+    width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+}
+
+@media (max-width: 390px) {
+  #ai1-mobile-photo-actions {
+    gap: 6px !important;
+  }
+  #ai1-mobile-photo-actions > button {
+    height: 40px !important;
+    min-height: 40px !important;
+    padding: 0 5px !important;
+    font-size: 12px !important;
+  }
+  #ai1-mobile-photo-actions > button i {
+    margin-right: 3px !important;
+    font-size: 12px !important;
+  }
+}
+</style>
 
 
 <script id="ABSOLUTE-EXECUTIVE-4-FINAL">
@@ -14454,6 +14551,208 @@ const app = {
 </script>
 
 <!-- FINAL PATCH v3: photo buttons + cross-device proposal sync only -->
+<style id="gnp-final-photo-buttons-v3">
+@media (max-width: 768px) {
+  /* 기존 모바일에서 별도로 생성되던 2개 버튼 제거 */
+  #ai1-mobile-photo-actions { display:none !important; }
+
+  /* 현장사진 버튼은 정확히 3개만 1열 */
+  #ai1-photo-actions {
+    display:grid !important;
+    grid-template-columns:repeat(3,minmax(0,1fr)) !important;
+    gap:6px !important;
+    width:100% !important;
+    overflow:hidden !important;
+  }
+  #ai1-photo-actions > button {
+    display:flex !important;
+    min-width:0 !important;
+    width:100% !important;
+    height:42px !important;
+    padding:0 4px !important;
+    margin:0 !important;
+    align-items:center !important;
+    justify-content:center !important;
+    gap:4px !important;
+    border-radius:10px !important;
+    font-size:11px !important;
+    white-space:nowrap !important;
+    overflow:hidden !important;
+  }
+  #ai1-photo-actions > button span {
+    min-width:0 !important;
+    overflow:hidden !important;
+    text-overflow:ellipsis !important;
+    white-space:nowrap !important;
+  }
+  #ai1-files, #ai1-camera { display:none !important; }
+}
+</style>
+<script type="module" id="gnp-final-proposal-sync-v3">
+import { collection, getDocs, setDoc, doc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+import { signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+
+(() => {
+  const KEY='gnp_ai1_proposals';
+  const COL='safetyProposals';
+  const DOMAIN='gnp-hse.firebaseapp.com';
+  const MAX_PHOTO=300000;
+  let db=null, auth=null, unsubscribe=null, started=false, writeQueue=Promise.resolve();
+
+  const clone = v => { try { return JSON.parse(JSON.stringify(v ?? [])); } catch { return []; } };
+  const getLocal = () => { try { const x=JSON.parse(localStorage.getItem(KEY)||'[]'); return Array.isArray(x)?x:[]; } catch { return []; } };
+  const putLocal = rows => { try { localStorage.setItem(KEY,JSON.stringify(rows||[])); } catch(e) { console.warn('제안 로컬 저장 실패',e); } };
+  const id = x => String(x?.id||'');
+
+  function mergeById(a,b){
+    const m=new Map();
+    [...(a||[]),...(b||[])].forEach(x=>{ if(id(x)) m.set(id(x),x); });
+    return [...m.values()];
+  }
+
+  async function hashId(value){
+    const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(value)));
+    return Array.from(new Uint8Array(buf)).map(x=>x.toString(16).padStart(2,'0')).join('');
+  }
+
+  async function ensureAuth(){
+    if(auth?.currentUser) return true;
+    const legacy=window.app?.auth?.currentUser;
+    const legacyId=String(legacy?.id||legacy?.name||'').trim();
+    const pw=String(legacy?.pw||'');
+    if(!legacyId || !pw) return false;
+    try{
+      const h=await hashId(legacyId);
+      const email=`u-${h.slice(0,32)}@${DOMAIN}`;
+      await signInWithEmailAndPassword(auth,email,pw);
+      return !!auth.currentUser;
+    }catch(e){
+      console.warn('제안 Firebase 인증 실패',e?.code||e?.message||e);
+      return false;
+    }
+  }
+
+  function size(v){ return typeof v==='string' ? v.length : 0; }
+  function compress(v,max=MAX_PHOTO){
+    return new Promise(resolve=>{
+      if(!v || size(v)<=max) return resolve(v||'');
+      const img=new Image();
+      img.onload=()=>{
+        let scale=Math.min(1,720/Math.max(img.naturalWidth||img.width,img.naturalHeight||img.height));
+        let quality=.58;
+        const canvas=document.createElement('canvas');
+        for(let n=0;n<8;n++){
+          canvas.width=Math.max(1,Math.round((img.naturalWidth||img.width)*scale));
+          canvas.height=Math.max(1,Math.round((img.naturalHeight||img.height)*scale));
+          const ctx=canvas.getContext('2d');
+          ctx.fillStyle='#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+          ctx.drawImage(img,0,0,canvas.width,canvas.height);
+          const out=canvas.toDataURL('image/jpeg',quality);
+          if(size(out)<=max) return resolve(out);
+          if(quality>.4) quality-=.06; else scale*=.78;
+        }
+        resolve(canvas.toDataURL('image/jpeg',.4));
+      };
+      img.onerror=()=>resolve('');
+      img.src=v;
+    });
+  }
+
+  async function cloudRow(row){
+    const x={...(row||{})};
+    if(size(x.photoDataUrl)>MAX_PHOTO) x.photoDataUrl=await compress(x.photoDataUrl);
+    if(size(x.improvementPhotoDataUrl)>MAX_PHOTO) x.improvementPhotoDataUrl=await compress(x.improvementPhotoDataUrl);
+    /* undefined 필드는 Firestore에서 거부될 수 있으므로 제거 */
+    Object.keys(x).forEach(k=>{ if(x[k]===undefined) delete x[k]; });
+    return x;
+  }
+
+  async function readCloud(){
+    const snap=await getDocs(collection(db,COL));
+    return snap.docs.map(d=>({id:String(d.data()?.id||d.id),...(d.data()||{})})).filter(x=>id(x));
+  }
+
+  async function pushRows(rows){
+    if(!db || !auth?.currentUser) return false;
+    const localRows=clone(rows);
+    writeQueue=writeQueue.then(async()=>{
+      const existing=await readCloud();
+      const merged=mergeById(existing,localRows);
+      for(const row of merged){
+        const key=id(row); if(!key) continue;
+        const payload=await cloudRow(row);
+        await setDoc(doc(db,COL,key),{
+          ...payload,
+          id:key,
+          _syncUpdatedAt:serverTimestamp(),
+          _syncUpdatedBy:auth.currentUser.uid
+        },{merge:true});
+      }
+      const latest=await readCloud();
+      putLocal(latest);
+      try{ window.app?.ai1?.render?.(); }catch{}
+      return true;
+    }).catch(e=>{ console.error('안전제안 Firebase 저장 실패',e); return false; });
+    return writeQueue;
+  }
+
+  function bindSave(){
+    const ai=window.app?.ai1;
+    if(!ai || ai.__finalSyncV3Bound) return false;
+    ai.__finalSyncV3Bound=true;
+    const originalGet=ai.getData;
+    ai.getData=()=>getLocal();
+    ai.saveData=function(rows){
+      const next=clone(rows);
+      putLocal(next);
+      try{ ai.render?.(); }catch{}
+      /* 저장 순간에도 인증을 다시 확인하고 즉시 Firebase로 전송 */
+      (async()=>{
+        if(!auth?.currentUser) await ensureAuth();
+        if(auth?.currentUser) await pushRows(next);
+      })();
+      return true;
+    };
+    return true;
+  }
+
+  async function start(){
+    if(started) return true;
+    const gf=window.gnpFirebase;
+    if(!gf?.db || !gf?.auth) return false;
+    db=gf.db; auth=gf.auth;
+    if(!(await ensureAuth())) return false;
+    started=true;
+    try{
+      const cloud=await readCloud();
+      const local=getLocal();
+      const merged=mergeById(cloud,local);
+      putLocal(merged);
+      await pushRows(merged);
+      bindSave();
+      if(unsubscribe) unsubscribe();
+      unsubscribe=onSnapshot(collection(db,COL),snap=>{
+        const rows=snap.docs.map(d=>({id:String(d.data()?.id||d.id),...(d.data()||{})})).filter(x=>id(x));
+        putLocal(rows);
+        try{ window.app?.ai1?.render?.(); }catch{}
+      },e=>console.error('안전제안 실시간 동기화 오류',e));
+      return true;
+    }catch(e){
+      console.error('안전제안 동기화 초기화 실패',e);
+      started=false;
+      return false;
+    }
+  }
+
+  function boot(){
+    bindSave();
+    if(window.gnpFirebase?.db && window.gnpFirebase?.auth){ start(); }
+  }
+  const timer=setInterval(()=>{ bindSave(); start(); if(started) clearInterval(timer); },500);
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
+  window.addEventListener('load',boot);
+})();
+</script>
 
 <script id="gnp-final-photo-cleanup-v3">
 (function(){
@@ -14481,244 +14780,166 @@ const app = {
 })();
 </script>
 
-\n<!-- FINAL PATCH v4: ONLY photo buttons + cross-device safety proposal sync -->
-<style id="gnp-v4-photo-buttons">
-@media (max-width: 768px) {
-  #ai1-mobile-photo-actions { display:none !important; }
-  #ai1-photo-actions {
-    display:grid !important;
-    grid-template-columns:repeat(3,minmax(0,1fr)) !important;
-    gap:6px !important;
-    width:100% !important;
-    overflow:hidden !important;
-  }
-  #ai1-photo-actions > button {
-    display:flex !important;
-    min-width:0 !important;
-    width:100% !important;
-    height:40px !important;
-    min-height:40px !important;
-    padding:0 4px !important;
-    margin:0 !important;
-    align-items:center !important;
-    justify-content:center !important;
-    gap:4px !important;
-    border-radius:9px !important;
-    font-size:11px !important;
-    line-height:1 !important;
-    white-space:nowrap !important;
-    overflow:hidden !important;
-    box-sizing:border-box !important;
-  }
-  #ai1-photo-actions > button span {
-    min-width:0 !important;
-    overflow:hidden !important;
-    text-overflow:ellipsis !important;
-    white-space:nowrap !important;
-  }
-  #ai1-photo-actions > button i { margin-right:3px !important; font-size:11px !important; flex:0 0 auto; }
-  /* The legacy upload-row must not steal the edit button away from the 3-button row. */
-  #ai1-photo-actions + .ai1-upload-row { display:none !important; }
-}
-</style>
-<script id="gnp-v4-photo-buttons">
-(function(){
-  function arrange(){
-    const actions=document.getElementById('ai1-photo-actions');
-    const edit=document.getElementById('ai1-photo-edit-btn');
-    if(!actions || !edit) return;
-    // Always keep the three requested buttons in this exact order, without a mutation loop.
-    const attach=document.getElementById('ai1-photo-attach-btn');
-    const camera=document.getElementById('ai1-photo-camera-btn');
-    const wanted=[attach,camera,edit].filter(Boolean);
-    const current=Array.from(actions.children).filter(el=>wanted.includes(el));
-    const same=current.length===wanted.length && current.every((el,i)=>el===wanted[i]) && wanted.every(el=>el.parentElement===actions);
-    if(!same){ wanted.forEach(el=>actions.appendChild(el)); }
-    if(attach) attach.querySelector('span')?.replaceChildren(document.createTextNode('첨부하기'));
-    if(camera) camera.querySelector('span')?.replaceChildren(document.createTextNode('사진찍기'));
-    edit.querySelector('span')?.replaceChildren(document.createTextNode('편집하기'));
-    // Hide any legacy mobile controls if another old script recreates them.
-    const legacy=document.getElementById('ai1-mobile-photo-actions');
-    if(legacy) legacy.style.display='none';
-  }
-  arrange();
-  document.addEventListener('DOMContentLoaded',arrange);
-  window.addEventListener('load',arrange);
-  [50,200,500,1000,2000].forEach(t=>setTimeout(arrange,t));
-  const mo=new MutationObserver(()=>arrange());
-  mo.observe(document.body,{childList:true,subtree:true});
-})();
-</script>
-<script type="module" id="gnp-v4-proposal-sync">
-import { collection, getDocs, setDoc, doc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+</body>
+
+<!-- FINAL DATA SYNC ONLY: preserve latest UI, synchronize proposals through Firebase -->
+<script type="module" id="latest-version-firebase-proposal-sync">
+import {
+  collection, getDocs, setDoc, doc, onSnapshot, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+import { onAuthStateChanged, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 
 (function(){
-  'use strict';
-  const KEY='gnp_ai1_proposals';
-  const COL='safetyProposals';
-  const DOMAIN='gnp-hse.firebaseapp.com';
-  const MAX_PHOTO=700000;
-  let db=null, auth=null, unsubscribe=null, queue=Promise.resolve(), bound=false;
-
-  const clone=x=>{ try{return JSON.parse(JSON.stringify(x||[]));}catch{return[];} };
-  const id=x=>String(x?.id||'').trim();
-  const local=()=>{try{const x=JSON.parse(localStorage.getItem(KEY)||'[]');return Array.isArray(x)?x:[]}catch{return[];}};
-  const saveLocal=x=>{try{localStorage.setItem(KEY,JSON.stringify(x||[]));}catch(e){console.error('[GNP] local proposal save failed',e);}};
-  const wait=fn=>new Promise(resolve=>{let n=0;const t=()=>{try{if(fn())return resolve(true);}catch{} if(++n>240)return resolve(false);setTimeout(t,150);};t();});
-  const size=x=>typeof x==='string'?x.length:0;
-
-  async function sha(text){
-    const d=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(text)));
-    return Array.from(new Uint8Array(d)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  const KEY="gnp_ai1_proposals", COL="safetyProposals", EMAIL_DOMAIN="gnp-hse.firebaseapp.com";
+  let db=null, auth=null, unsubscribe=null, syncing=false, cloud=[];
+  let started=false, retryTimer=null;
+  const wait=(fn)=>new Promise(resolve=>{let n=0;const t=()=>{try{if(fn())return resolve(true)}catch(e){}if(++n>160)return resolve(false);setTimeout(t,150)};t()});
+  const clone=x=>JSON.parse(JSON.stringify(x||[]));
+  const id=x=>String(x?.id||"");
+  const sig=x=>{const y={...(x||{})};delete y._syncUpdatedAt;delete y._syncUpdatedBy;return JSON.stringify(y)};
+  function local(){try{const x=JSON.parse(localStorage.getItem(KEY)||"[]");return Array.isArray(x)?x:[]}catch(e){return[]}}
+  function saveLocal(x){try{localStorage.setItem(KEY,JSON.stringify(x||[]))}catch(e){console.warn('안전제안 로컬 저장 실패',e)}}
+  function merge(a,b){
+    const m=new Map();
+    [...(a||[]),...(b||[])].forEach(x=>{if(id(x))m.set(id(x),x)});
+    return [...m.values()];
   }
-
-  async function ensureAuth(){
-    // 로그인 화면/일반 화면에서는 Firebase 로그인을 새로 시도하지 않습니다.
-    // 로그인은 상단 Firebase 인증 브리지에서만 담당하고, 여기서는 이미 열린 세션만 사용합니다.
-    return !!auth?.currentUser;
+  async function readCloud(){
+    const s=await getDocs(collection(db,COL));
+    return s.docs.map(d=>({id:String(d.data()?.id||d.id),...(d.data()||{})}));
   }
-
-  function compress(dataUrl,max=MAX_PHOTO){
+  async function sha256Hex(text){
+    const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(text)));
+    return Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+  async function ensureFirebaseAuth(){
+    if(auth?.currentUser) return true;
+    const u=window.app?.auth?.currentUser;
+    const pw=String(u?.pw||'');
+    const legacyId=String(u?.id||u?.name||'').trim();
+    if(!legacyId || !pw) return false;
+    try{
+      const hash=await sha256Hex(legacyId);
+      const email=`u-${hash.slice(0,32)}@${EMAIL_DOMAIN}`;
+      await signInWithEmailAndPassword(auth,email,pw);
+      return !!auth.currentUser;
+    }catch(e){
+      console.warn('안전제안 Firebase 자동 로그인 실패',e?.code||e?.message||e);
+      return false;
+    }
+  }
+  function dataUrlSize(dataUrl){return typeof dataUrl==='string'?dataUrl.length:0}
+  function compressDataUrl(dataUrl,max=850000){
     return new Promise(resolve=>{
-      if(!dataUrl || size(dataUrl)<=max) return resolve(dataUrl||'');
+      if(!dataUrl || dataUrlSize(dataUrl)<=max) return resolve(dataUrl||'');
       const img=new Image();
       img.onload=()=>{
-        let scale=Math.min(1,1000/Math.max(img.naturalWidth||img.width,img.naturalHeight||img.height));
-        let quality=.65;
+        let scale=Math.min(1,900/Math.max(img.width,img.height));
         const canvas=document.createElement('canvas');
-        for(let i=0;i<10;i++){
-          canvas.width=Math.max(1,Math.round((img.naturalWidth||img.width)*scale));
-          canvas.height=Math.max(1,Math.round((img.naturalHeight||img.height)*scale));
+        const draw=()=>{
+          canvas.width=Math.max(1,Math.round(img.width*scale));
+          canvas.height=Math.max(1,Math.round(img.height*scale));
           const ctx=canvas.getContext('2d');
           ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
           ctx.drawImage(img,0,0,canvas.width,canvas.height);
-          const out=canvas.toDataURL('image/jpeg',quality);
-          if(size(out)<=max) return resolve(out);
-          if(quality>.40) quality-=.05; else scale*=.80;
-        }
-        resolve(canvas.toDataURL('image/jpeg',.38));
+          let q=.62, out=canvas.toDataURL('image/jpeg',q);
+          while(out.length>max && q>.38){q-=.06;out=canvas.toDataURL('image/jpeg',q)}
+          while(out.length>max && scale>.5){scale*=.82;canvas.width=Math.max(1,Math.round(img.width*scale));canvas.height=Math.max(1,Math.round(img.height*scale));ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);out=canvas.toDataURL('image/jpeg',Math.max(.38,q))}
+          resolve(out);
+        };
+        draw();
       };
       img.onerror=()=>resolve('');
       img.src=dataUrl;
     });
   }
-
-  async function cloudRow(row){
-    const x={...(row||{})};
-    if(size(x.photoDataUrl)>MAX_PHOTO)x.photoDataUrl=await compress(x.photoDataUrl);
-    if(size(x.improvementPhotoDataUrl)>MAX_PHOTO)x.improvementPhotoDataUrl=await compress(x.improvementPhotoDataUrl);
-    Object.keys(x).forEach(k=>{if(x[k]===undefined)delete x[k];});
-    return x;
+  async function prepareForCloud(x){
+    const y={...(x||{})};
+    if(dataUrlSize(y.photoDataUrl)>850000) y.photoDataUrl=await compressDataUrl(y.photoDataUrl);
+    if(dataUrlSize(y.improvementPhotoDataUrl)>850000) y.improvementPhotoDataUrl=await compressDataUrl(y.improvementPhotoDataUrl);
+    return y;
   }
-
-  async function readCloud(){
-    if(!db) return [];
-    const s=await getDocs(collection(db,COL));
-    return s.docs.map(d=>({...(d.data()||{}),id:String(d.data()?.id||d.id)})).filter(x=>id(x));
-  }
-
-  async function writeRows(rows){
-    if(!db || !auth?.currentUser) return false;
-    const list=clone(rows);
-    queue=queue.then(async()=>{
-      // Write every local proposal by its stable proposal id. No dependence on browser localStorage across devices.
-      for(const raw of list){
-        const k=id(raw); if(!k) continue;
-        const payload=await cloudRow(raw);
-        await setDoc(doc(db,COL,k),{...payload,id:k,_syncUpdatedAt:serverTimestamp(),_syncUpdatedBy:auth.currentUser.uid},{merge:true});
-      }
-      return true;
-    }).catch(e=>{
-      console.error('[GNP] safetyProposals Firestore write failed:',e?.code||e?.message||e);
-      return false;
-    });
-    return queue;
-  }
-
-  async function pullCloud(){
+  async function writeMerged(rows){
+    if(syncing || !db || !auth?.currentUser)return false;
+    syncing=true;
     try{
-      const rows=await readCloud();
-      if(!rows.length)return false;
-      // Cloud is authoritative across devices. Keep local-only rows only if they are not already cloud rows, then push them once.
-      const loc=local();
-      const map=new Map();
-      [...rows,...loc].forEach(x=>{if(id(x))map.set(id(x),x);});
-      const merged=[...map.values()];
-      saveLocal(merged);
-      try{window.app?.ai1?.render?.();}catch{}
+      const fresh=await readCloud();
+      const merged=merge(fresh,rows);
+      const fm=new Map(fresh.map(x=>[id(x),x]));
+      for(const raw of merged){
+        const k=id(raw); if(!k)continue;
+        const x=await prepareForCloud(raw);
+        const old=fm.get(k);
+        if(!old || sig(old)!==sig(x)){
+          await setDoc(doc(db,COL,k),{...x,_syncUpdatedAt:serverTimestamp(),_syncUpdatedBy:auth.currentUser.uid},{merge:true});
+        }
+      }
+      cloud=clone(merged); saveLocal(merged);
       return true;
     }catch(e){
-      console.error('[GNP] safetyProposals Firestore read failed:',e?.code||e?.message||e);
+      console.error('안전제안 Firebase 동기화 실패',e);
       return false;
-    }
+    }finally{syncing=false}
   }
-
-  function bind(){
-    const ai=window.app?.ai1;
-    if(!ai || bound)return false;
-    bound=true;
-    ai.getData=()=>local();
-    const originalSaveData=ai.saveData?.bind(ai);
-    ai.saveData=function(rows){
-      const next=clone(rows);
-      saveLocal(next);
-      (async()=>{
-        if(await ensureAuth()) await writeRows(next);
-      })();
-      try{ai.render?.();}catch{}
-      return originalSaveData ? originalSaveData(next) : true;
-    };
-    const originalSave=ai.save?.bind(ai);
-    if(originalSave && !ai.__gnpV4SaveWrapped){
-      ai.__gnpV4SaveWrapped=true;
-      ai.save=async function(){
-        const result=await originalSave();
-        // The legacy save() writes directly to localStorage, so explicitly sync after it completes.
-        const rows=local();
-        if(await ensureAuth()) await writeRows(rows);
-        return result;
-      };
-    }
-    return true;
+  function refresh(){
+    try{window.app?.ai1?.render?.()}catch(e){}
+    try{window.app?.ai1?.refreshDashboard?.()}catch(e){}
   }
-
   async function start(){
-    const gf=window.gnpFirebase;
-    const ai=window.app?.ai1;
-    if(!gf?.db || !gf?.auth || !ai) return false;
-    db=gf.db;auth=gf.auth;
-    if(!auth?.currentUser) return false;
-    // First pull shared cloud data, then upload any local-only rows (e.g. a proposal just created on a phone).
-    await pullCloud();
-    await writeRows(local());
-    bind();
-    if(unsubscribe)unsubscribe();
-    unsubscribe=onSnapshot(collection(db,COL),snap=>{
-      const rows=snap.docs.map(d=>({...(d.data()||{}),id:String(d.data()?.id||d.id)})).filter(x=>id(x));
-      if(rows.length){saveLocal(rows);try{window.app?.ai1?.render?.();}catch{}}
-    },e=>console.error('[GNP] safetyProposals realtime sync failed:',e?.code||e?.message||e));
-    return true;
+    if(started || !window.gnpFirebase?.db || !window.gnpFirebase?.auth)return;
+    db=window.gnpFirebase.db; auth=window.gnpFirebase.auth;
+    if(!(await ensureFirebaseAuth()))return;
+    if(started)return;
+    started=true;
+    try{
+      const first=await readCloud(), loc=local(), merged=merge(first,loc);
+      cloud=clone(merged); saveLocal(merged);
+      await writeMerged(merged);
+      if(window.app?.ai1){
+        window.app.ai1.getData=()=>clone(cloud);
+        if(!window.app.ai1.__latestSyncSave){
+          window.app.ai1.__latestSyncSave=true;
+          window.app.ai1.saveData=function(rows){
+            const next=clone(rows);
+            cloud=next; saveLocal(next); refresh();
+            writeMerged(next).then(async ok=>{
+              if(ok){cloud=await readCloud();saveLocal(cloud);refresh();}
+            });
+            return true;
+          };
+        }
+      }
+      if(unsubscribe)unsubscribe();
+      unsubscribe=onSnapshot(collection(db,COL),s=>{
+        if(syncing)return;
+        cloud=s.docs.map(d=>({id:String(d.data()?.id||d.id),...(d.data()||{})}));
+        saveLocal(cloud); refresh();
+      },e=>console.error('안전제안 실시간 동기화 오류',e));
+      refresh();
+    }catch(e){
+      console.error('안전제안 동기화 시작 실패',e);
+      started=false;
+    }
   }
-
-  wait(()=>window.gnpFirebase?.db&&window.gnpFirebase?.auth&&window.app?.ai1).then(()=>{
-    db=window.gnpFirebase.db;auth=window.gnpFirebase.auth;
-    // Firebase 세션이 실제로 생겼을 때만 동기화를 시작합니다.
-    // 로그인 전 반복 sign-in/3초 polling을 제거해 모바일·PC 무한대기/랙을 방지합니다.
+  function scheduleStart(){
+    clearInterval(retryTimer);
+    retryTimer=setInterval(()=>{
+      if(started){clearInterval(retryTimer);return;}
+      start().catch(console.error);
+    },1000);
+    start().catch(console.error);
+  }
+  wait(()=>window.gnpFirebase?.db&&window.gnpFirebase?.auth&&window.app?.ai1).then(ok=>{
+    if(!ok)return;
+    db=window.gnpFirebase.db; auth=window.gnpFirebase.auth;
     onAuthStateChanged(auth,u=>{
-      if(u) start().catch(console.error);
-      else { try { bind(); } catch (_) {} }
+      if(u){start().catch(console.error)}
+      else if(!started)scheduleStart();
     });
-    if(auth?.currentUser) start().catch(console.error);
-    window.addEventListener('storage',e=>{
-      if(e.key===KEY && auth?.currentUser) writeRows(local()).catch(()=>{});
-    });
+    scheduleStart();
   });
 })();
 </script>
-</body>
-
-<!-- FINAL DATA SYNC ONLY: preserve latest UI, synchronize proposals through Firebase -->
 
 <!-- FINAL ROLE PERSISTENCE ONLY: preserve latest UI and accept 임원 as a valid role -->
 <script type="module" id="latest-version-executive-role-fix">
@@ -14888,54 +15109,5 @@ import { collection, getDocs, setDoc, serverTimestamp } from "https://www.gstati
 })();
 </script>
 
-
-<script id="absolute-executive-four-fix">
-(function(){
-  const EXEC = new Set(["양영훈","채일식","박경원","공동화"]);
-  const isExec = u => u && EXEC.has(String(u.id || u.name || "").trim());
-  const force = rows => {
-    if (!Array.isArray(rows)) return [];
-    let changed=false;
-    rows.forEach(u=>{ if(isExec(u) && u.role !== "임원"){ u.role="임원"; changed=true; } });
-    return {rows, changed};
-  };
-  const boot=()=>{
-    const app=window.app;
-    if(!app || !app.db || !app.auth) return false;
-    if(!app.db.__absoluteExecFix){
-      const rawGet=app.db.getUsers.bind(app.db);
-      const rawSave=app.db.saveUsers.bind(app.db);
-      app.db.getUsers=function(){
-        const result=force(rawGet());
-        if(result.changed) rawSave(result.rows);
-        if(app.auth.currentUser && isExec(app.auth.currentUser)) app.auth.currentUser.role="임원";
-        return result.rows;
-      };
-      app.db.saveUsers=function(rows){
-        const result=force(rows);
-        if(app.auth.currentUser && isExec(app.auth.currentUser)) app.auth.currentUser.role="임원";
-        return rawSave(result.rows);
-      };
-      app.db.__absoluteExecFix=true;
-    }
-    const rows=app.db.getUsers();
-    if(app.auth.currentUser && isExec(app.auth.currentUser)){
-      app.auth.currentUser.role="임원";
-      const me=rows.find(u=>String(u.id||u.name||"").trim()===String(app.auth.currentUser.id||app.auth.currentUser.name||"").trim());
-      if(me) me.role="임원";
-    }
-    try{
-      document.querySelectorAll('select[id^="spr-role-"]').forEach(sel=>{
-        const id=sel.id.replace(/^spr-role-/,'');
-        if(EXEC.has(id)){ sel.value="임원"; sel.dispatchEvent(new Event('change',{bubbles:true})); }
-      });
-    }catch(e){}
-    return true;
-  };
-  let n=0;
-  const timer=setInterval(()=>{ if(boot() || ++n>120) clearInterval(timer); },250);
-  document.addEventListener('click',()=>setTimeout(boot,50),true);
-})();
-</script>
-
+\n<script id="absolute-executive-four-fix">\n(function(){\n  const EXEC = new Set(["양영훈","채일식","박경원","공동화"]);\n  const isExec = u => u && EXEC.has(String(u.id || u.name || "").trim());\n  const force = rows => {\n    if (!Array.isArray(rows)) return [];\n    let changed=false;\n    rows.forEach(u=>{ if(isExec(u) && u.role !== "임원"){ u.role="임원"; changed=true; } });\n    return {rows, changed};\n  };\n  const boot=()=>{\n    const app=window.app;\n    if(!app || !app.db || !app.auth) return false;\n    if(!app.db.__absoluteExecFix){\n      const rawGet=app.db.getUsers.bind(app.db);\n      const rawSave=app.db.saveUsers.bind(app.db);\n      app.db.getUsers=function(){\n        const result=force(rawGet());\n        if(result.changed) rawSave(result.rows);\n        if(app.auth.currentUser && isExec(app.auth.currentUser)) app.auth.currentUser.role="임원";\n        return result.rows;\n      };\n      app.db.saveUsers=function(rows){\n        const result=force(rows);\n        if(app.auth.currentUser && isExec(app.auth.currentUser)) app.auth.currentUser.role="임원";\n        return rawSave(result.rows);\n      };\n      app.db.__absoluteExecFix=true;\n    }\n    const rows=app.db.getUsers();\n    if(app.auth.currentUser && isExec(app.auth.currentUser)){\n      app.auth.currentUser.role="임원";\n      const me=rows.find(u=>String(u.id||u.name||"").trim()===String(app.auth.currentUser.id||app.auth.currentUser.name||"").trim());\n      if(me) me.role="임원";\n    }\n    try{\n      document.querySelectorAll('select[id^="spr-role-"]').forEach(sel=>{\n        const id=sel.id.replace(/^spr-role-/,'');\n        if(EXEC.has(id)){ sel.value="임원"; sel.dispatchEvent(new Event('change',{bubbles:true})); }\n      });\n    }catch(e){}\n    return true;\n  };\n  let n=0;\n  const timer=setInterval(()=>{ if(boot() || ++n>120) clearInterval(timer); },250);\n  document.addEventListener('click',()=>setTimeout(boot,50),true);\n})();\n</script>\n
 </html>
