@@ -14918,7 +14918,18 @@ const app = {
      LocalStorage is a local cache only.
      No automatic local-cache -> cloud overwrite on login/startup.
 -->
-<script type="module" id="gnp-single-source-sync-v18">
+
+
+<!-- FINAL SINGLE-SOURCE REALTIME SYNC v19
+     Root fix: local login and Firebase authentication were separate.
+     We establish a lightweight Firebase Auth session (anonymous) in the
+     background, then use Firestore as the shared source of truth.
+     This removes the per-device localStorage isolation for:
+       - users/team/role/approvalPermission
+       - safetyProposals create/edit/score/approval/status/delete
+     Existing UI and business logic remain intact.
+-->
+<script type="module" id="gnp-single-source-sync-v19">
 import {
   collection,
   doc,
@@ -14927,7 +14938,10 @@ import {
   onSnapshot,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
-import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+import {
+  onAuthStateChanged,
+  signInAnonymously
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 
 (function(){
   'use strict';
@@ -14941,81 +14955,103 @@ import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/f
   let userUnsub = null;
   let proposalUnsub = null;
   let authUnsub = null;
-  let userDocIdByLegacy = new Map();
+  let anonymousLoginPromise = null;
 
-  const userQueues = new Map();
-  const proposalQueues = new Map();
+  const userDocIds = new Map();
+  const proposalQueue = new Map();
+  const userQueue = new Map();
 
-  const clone = value => {
-    try { return JSON.parse(JSON.stringify(value)); }
+  const clone = v => {
+    try { return JSON.parse(JSON.stringify(v)); }
     catch { return null; }
   };
 
-  const clean = value => {
-    const out = { ...(value || {}) };
-    Object.keys(out).forEach(k => {
-      if(out[k] === undefined) delete out[k];
+  const clean = v => {
+    const o = { ...(v || {}) };
+    Object.keys(o).forEach(k => {
+      if(o[k] === undefined) delete o[k];
     });
-    return out;
+    return o;
   };
 
-  const userId = u =>
-    String(u?.id || u?.legacyId || u?.name || '').trim();
-
-  const proposalId = p =>
-    String(p?.id || '').trim();
+  const uidOf = u => String(u?.id || u?.legacyId || u?.name || '').trim();
+  const pidOf = p => String(p?.id || '').trim();
 
   function readUsers(){
     try {
       const rows = JSON.parse(localStorage.getItem(USER_KEY) || '[]');
       return Array.isArray(rows) ? rows : [];
-    } catch {
-      return [];
-    }
+    } catch { return []; }
   }
 
   function writeUsers(rows){
-    localStorage.setItem(
-      USER_KEY,
-      JSON.stringify(Array.isArray(rows) ? rows : [])
-    );
+    try {
+      localStorage.setItem(USER_KEY, JSON.stringify(Array.isArray(rows) ? rows : []));
+    } catch(e) {
+      console.warn('[GNP v19] users local cache failed', e);
+    }
   }
 
   function readProposals(){
     try {
       const rows = JSON.parse(localStorage.getItem(PROPOSAL_KEY) || '[]');
       return Array.isArray(rows) ? rows : [];
-    } catch {
-      return [];
-    }
+    } catch { return []; }
   }
 
   function writeProposals(rows){
-    localStorage.setItem(
-      PROPOSAL_KEY,
-      JSON.stringify(Array.isArray(rows) ? rows : [])
-    );
+    try {
+      localStorage.setItem(PROPOSAL_KEY, JSON.stringify(Array.isArray(rows) ? rows : []));
+    } catch(e) {
+      console.warn('[GNP v19] proposals local cache failed', e);
+    }
   }
 
   function enqueue(map, id, operation){
-    const previous = map.get(id) || Promise.resolve();
+    const key = String(id);
+    const previous = map.get(key) || Promise.resolve();
 
     const next = previous
       .catch(() => {})
       .then(operation)
       .finally(() => {
-        if(map.get(id) === next) map.delete(id);
+        if(map.get(key) === next) map.delete(key);
       });
 
-    map.set(id, next);
+    map.set(key, next);
     return next;
   }
 
-  function refreshUserScreen(){
+  async function ensureFirebaseSession(){
+    const gf = window.gnpFirebase;
+    if(!gf?.auth) throw new Error('Firebase Auth가 초기화되지 않았습니다.');
+
+    if(gf.auth.currentUser) return gf.auth.currentUser;
+
+    if(!anonymousLoginPromise){
+      anonymousLoginPromise = signInAnonymously(gf.auth)
+        .then(credential => {
+          console.log('[GNP v19] Firebase shared session established');
+          return credential.user;
+        })
+        .catch(error => {
+          anonymousLoginPromise = null;
+          console.error(
+            '[GNP v19] Firebase anonymous auth failed:',
+            error?.code || error?.message || error
+          );
+          throw error;
+        });
+    }
+
+    return anonymousLoginPromise;
+  }
+
+  function refreshUsers(){
     try {
       const me = window.app?.auth?.currentUser;
       if(me){
-        const latest = readUsers().find(u => userId(u) === userId(me));
+        const latest = readUsers().find(u => uidOf(u) === uidOf(me));
         if(latest) window.app.auth.currentUser = latest;
       }
     } catch(_){}
@@ -15025,13 +15061,13 @@ import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/f
     try { window.app?.auth?.refreshPanel?.(); } catch(_){}
   }
 
-  function refreshProposalScreen(){
+  function refreshProposals(){
     try { window.app?.ai1?.render?.(); } catch(_){}
   }
 
-  function startUsersListener(){
+  function startUserListener(){
     const gf = window.gnpFirebase;
-    if(!gf?.db || !gf?.auth?.currentUser) return;
+    if(!gf?.db) return;
 
     if(userUnsub){
       try { userUnsub(); } catch(_){}
@@ -15041,51 +15077,59 @@ import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/f
     userUnsub = onSnapshot(
       collection(gf.db, USER_COL),
       snapshot => {
-        const cloudUsers = snapshot.docs.map(s => ({
+        const cloud = snapshot.docs.map(s => ({
           ...(s.data() || {}),
           __docId: s.id
-        })).filter(u => userId(u));
+        })).filter(u => uidOf(u));
 
-        userDocIdByLegacy = new Map(
-          cloudUsers.map(u => [userId(u), u.__docId])
-        );
-
-        const localMap = new Map(
-          readUsers().map(u => [userId(u), u])
-        );
+        cloud.forEach(u => {
+          userDocIds.set(uidOf(u), u.__docId);
+        });
 
         /*
-         * Firestore is authoritative for shared account state.
-         * Keep password only from local cache because this app's existing
-         * login flow stores it locally.
+         * IMPORTANT:
+         * Firestore wins for shared fields. Local passwords are retained
+         * only when a matching local record exists.
          */
-        const merged = cloudUsers.map(cloud => {
-          const local = localMap.get(userId(cloud)) || {};
-          return {
-            ...local,
-            ...clean(cloud),
-            id: userId(cloud),
-            name: String(cloud.name || local.name || userId(cloud)),
-            team: String(cloud.team || local.team || ''),
-            role: String(cloud.role || local.role || 'USER')
-          };
+        const localMap = new Map(
+          readUsers().map(u => [uidOf(u), u]).filter(([id]) => id)
+        );
+
+        const merged = cloud.map(c => ({
+          ...(localMap.get(uidOf(c)) || {}),
+          ...clean(c),
+          id: uidOf(c),
+          name: String(c.name || localMap.get(uidOf(c))?.name || uidOf(c)),
+          team: String(c.team || localMap.get(uidOf(c))?.team || ''),
+          role: String(c.role || localMap.get(uidOf(c))?.role || 'USER')
+        }));
+
+        /*
+         * Preserve locally-created users until they are saved to Firebase.
+         */
+        localMap.forEach((local, id) => {
+          if(!cloud.some(c => uidOf(c) === id)) {
+            merged.push(local);
+          }
         });
 
         writeUsers(merged);
-        refreshUserScreen();
+        refreshUsers();
 
-        console.log('[GNP v18] users realtime:', merged.length);
+        console.log('[GNP v19] users realtime:', cloud.length);
       },
-      error => console.error(
-        '[GNP v18] users onSnapshot error:',
-        error?.code || error?.message || error
-      )
+      error => {
+        console.error(
+          '[GNP v19] users listener error:',
+          error?.code || error?.message || error
+        );
+      }
     );
   }
 
-  function startProposalsListener(){
+  function startProposalListener(){
     const gf = window.gnpFirebase;
-    if(!gf?.db || !gf?.auth?.currentUser) return;
+    if(!gf?.db) return;
 
     if(proposalUnsub){
       try { proposalUnsub(); } catch(_){}
@@ -15095,165 +15139,167 @@ import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/f
     proposalUnsub = onSnapshot(
       collection(gf.db, PROPOSAL_COL),
       snapshot => {
-        const cloudRows = snapshot.docs.map(s => ({
+        const cloud = snapshot.docs.map(s => ({
           ...(s.data() || {}),
           id: String(s.data()?.id || s.id)
-        })).filter(p => proposalId(p));
+        })).filter(p => pidOf(p));
 
         /*
-         * Firestore is authoritative for the shared proposal list.
-         * A different PC/mobile therefore sees the same collection.
+         * Firestore is the common list for every PC and mobile device.
          */
-        writeProposals(cloudRows);
-        refreshProposalScreen();
+        writeProposals(cloud);
+        refreshProposals();
 
-        console.log('[GNP v18] proposals realtime:', cloudRows.length);
+        console.log('[GNP v19] proposals realtime:', cloud.length);
       },
-      error => console.error(
-        '[GNP v18] safetyProposals onSnapshot error:',
-        error?.code || error?.message || error
-      )
+      error => {
+        console.error(
+          '[GNP v19] proposals listener error:',
+          error?.code || error?.message || error
+        );
+      }
     );
   }
 
-  function writeUserCloud(user){
+  function saveUserCloud(user){
     const gf = window.gnpFirebase;
-    const uid = gf?.auth?.currentUser?.uid;
-    const id = userId(user);
+    const id = uidOf(user);
 
-    if(!gf?.db || !uid || !id) {
-      return Promise.reject(new Error('Firebase 인증/DB가 준비되지 않았습니다.'));
-    }
+    return ensureFirebaseSession().then(authUser => {
+      if(!gf?.db || !authUser || !id) return false;
 
-    return enqueue(userQueues, id, async () => {
-      const docId = userDocIdByLegacy.get(id) || id;
+      return enqueue(userQueue, id, async () => {
+        const docId = userDocIds.get(id) || id;
 
-      await setDoc(
-        doc(gf.db, USER_COL, docId),
-        {
-          legacyId: id,
-          id,
-          name: String(user.name || id),
-          team: String(user.team || ''),
-          role: String(user.role || 'USER'),
-          modules: Array.isArray(user.modules) ? user.modules : [],
-          active: user.active !== false,
-          approvalPermission: !!user.approvalPermission,
-          updatedAt: serverTimestamp(),
-          updatedBy: uid
-        },
-        { merge: true }
-      );
+        await setDoc(
+          doc(gf.db, USER_COL, docId),
+          {
+            id,
+            legacyId: id,
+            name: String(user.name || id),
+            team: String(user.team || ''),
+            role: String(user.role || 'USER'),
+            modules: Array.isArray(user.modules) ? user.modules : [],
+            active: user.active !== false,
+            approvalPermission: !!user.approvalPermission,
+            firebaseUid: String(user.firebaseUid || ''),
+            updatedAt: serverTimestamp(),
+            updatedBy: authUser.uid
+          },
+          { merge:true }
+        );
 
-      userDocIdByLegacy.set(id, docId);
-      return true;
+        userDocIds.set(id, docId);
+        return true;
+      });
     });
   }
 
-  function writeProposalCloud(row){
+  function saveProposalCloud(row){
     const gf = window.gnpFirebase;
-    const uid = gf?.auth?.currentUser?.uid;
-    const id = proposalId(row);
+    const id = pidOf(row);
 
-    if(!gf?.db || !uid || !id) {
-      return Promise.reject(new Error('Firebase 인증/DB가 준비되지 않았습니다.'));
-    }
+    return ensureFirebaseSession().then(authUser => {
+      if(!gf?.db || !authUser || !id) return false;
 
-    return enqueue(proposalQueues, id, async () => {
-      await setDoc(
-        doc(gf.db, PROPOSAL_COL, id),
-        {
-          ...clean(row),
-          id,
-          updatedAt: serverTimestamp(),
-          updatedBy: uid
-        },
-        { merge: true }
-      );
-      return true;
+      return enqueue(proposalQueue, id, async () => {
+        await setDoc(
+          doc(gf.db, PROPOSAL_COL, id),
+          {
+            ...clean(row),
+            id,
+            updatedAt: serverTimestamp(),
+            updatedBy: authUser.uid
+          },
+          { merge:true }
+        );
+
+        return true;
+      });
     });
   }
 
   function deleteProposalCloud(id){
     const gf = window.gnpFirebase;
-    const uid = gf?.auth?.currentUser?.uid;
     id = String(id || '').trim();
 
-    if(!gf?.db || !uid || !id) {
-      return Promise.reject(new Error('Firebase 인증/DB가 준비되지 않았습니다.'));
-    }
+    return ensureFirebaseSession().then(authUser => {
+      if(!gf?.db || !authUser || !id) return false;
 
-    return enqueue(proposalQueues, id, async () => {
-      await deleteDoc(doc(gf.db, PROPOSAL_COL, id));
-      return true;
+      return enqueue(proposalQueue, id, async () => {
+        await deleteDoc(doc(gf.db, PROPOSAL_COL, id));
+        return true;
+      });
     });
   }
 
-  function diffProposals(previousRows, nextRows){
-    const prev = new Map(
-      (clone(previousRows) || []).map(r => [proposalId(r), r]).filter(([id]) => id)
-    );
-    const next = new Map(
-      (clone(nextRows) || []).map(r => [proposalId(r), r]).filter(([id]) => id)
+  function syncUserDiff(previous, next){
+    const before = new Map(
+      (clone(previous) || []).map(u => [uidOf(u), u]).filter(([id]) => id)
     );
 
-    for(const [id,row] of next){
-      if(JSON.stringify(clean(prev.get(id))) !== JSON.stringify(clean(row))){
-        writeProposalCloud(row).catch(e =>
-          console.error('[GNP v18] proposal save failed:', id, e)
-        );
-      }
-    }
+    (clone(next) || []).forEach(u => {
+      const id = uidOf(u);
+      if(!id || id === 'admin') return;
 
-    for(const id of prev.keys()){
-      if(!next.has(id)){
-        deleteProposalCloud(id).catch(e =>
-          console.error('[GNP v18] proposal delete failed:', id, e)
+      const old = before.get(id);
+      if(JSON.stringify(clean(old)) !== JSON.stringify(clean(u))){
+        saveUserCloud(u).catch(e =>
+          console.error('[GNP v19] user sync failed:', id, e)
         );
       }
-    }
+    });
   }
 
-  function diffUsers(previousRows, nextRows){
-    const prev = new Map(
-      (clone(previousRows) || []).map(u => [userId(u), u]).filter(([id]) => id)
+  function syncProposalDiff(previous, next){
+    const before = new Map(
+      (clone(previous) || []).map(p => [pidOf(p), p]).filter(([id]) => id)
     );
 
-    (clone(nextRows) || []).forEach(user => {
-      const id = userId(user);
-      if(!id) return;
+    const after = new Map(
+      (clone(next) || []).map(p => [pidOf(p), p]).filter(([id]) => id)
+    );
 
-      if(JSON.stringify(clean(prev.get(id))) !== JSON.stringify(clean(user))){
-        writeUserCloud(user).catch(e =>
-          console.error('[GNP v18] user save failed:', id, e)
+    after.forEach((row, id) => {
+      if(JSON.stringify(clean(before.get(id))) !== JSON.stringify(clean(row))){
+        saveProposalCloud(row).catch(e =>
+          console.error('[GNP v19] proposal sync failed:', id, e)
+        );
+      }
+    });
+
+    before.forEach((_, id) => {
+      if(!after.has(id)){
+        deleteProposalCloud(id).catch(e =>
+          console.error('[GNP v19] proposal delete sync failed:', id, e)
         );
       }
     });
   }
 
   function patchSaveUsers(){
-    const app = window.app;
-    if(!app?.db?.saveUsers || app.db.saveUsers.__v18) return false;
+    const db = window.app?.db;
+    if(!db?.saveUsers || db.saveUsers.__v19) return false;
 
-    const original = app.db.saveUsers.bind(app.db);
+    const original = db.saveUsers.bind(db);
 
-    app.db.saveUsers = function(rows){
+    db.saveUsers = function(rows){
       const previous = readUsers();
       const next = clone(rows) || [];
 
       const result = original(next);
-      diffUsers(previous, next);
+      syncUserDiff(previous, next);
 
       return result;
     };
 
-    app.db.saveUsers.__v18 = true;
+    db.saveUsers.__v19 = true;
     return true;
   }
 
-  function patchProposalSaveData(){
+  function patchSaveData(){
     const ai = window.app?.ai1;
-    if(!ai?.saveData || ai.saveData.__v18) return false;
+    if(!ai?.saveData || ai.saveData.__v19) return false;
 
     const original = ai.saveData.bind(ai);
 
@@ -15263,93 +15309,85 @@ import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/f
 
       const result = original(next);
       writeProposals(next);
-      diffProposals(previous, next);
+      syncProposalDiff(previous, next);
 
       return result;
     };
 
-    ai.saveData.__v18 = true;
+    ai.saveData.__v19 = true;
     return true;
   }
 
   function patchDirectProposalSave(){
     const ai = window.app?.ai1;
-    if(!ai?.save || ai.save.__v18) return false;
+    if(!ai?.save || ai.save.__v19) return false;
 
     const original = ai.save.bind(ai);
 
     /*
-     * The current create/edit flow writes directly through writeProposals().
-     * Keep that UI/function intact and synchronize the resulting complete list
-     * immediately after it finishes.
+     * New proposal creation writes directly to local storage in the original
+     * function. Synchronize the resulting single/new list afterwards.
      */
     ai.save = async function(){
       const before = readProposals();
       const result = await original(...arguments);
       const after = readProposals();
 
-      diffProposals(before, after);
+      syncProposalDiff(before, after);
       return result;
     };
 
-    ai.save.__v18 = true;
+    ai.save.__v19 = true;
     return true;
   }
 
   function patchDelete(){
     const ai = window.app?.ai1;
-    if(!ai?.remove || ai.remove.__v18) return false;
+    if(!ai?.remove || ai.remove.__v19) return false;
 
     const original = ai.remove.bind(ai);
 
     ai.remove = async function(id){
       const before = readProposals();
-
       const result = original(id);
+      const after = readProposals();
 
-      const exists = readProposals()
-        .some(row => proposalId(row) === String(id));
-
-      if(!exists && before.some(row => proposalId(row) === String(id))){
+      if(
+        before.some(p => pidOf(p) === String(id)) &&
+        !after.some(p => pidOf(p) === String(id))
+      ){
         await deleteProposalCloud(id);
       }
 
       return result;
     };
 
-    ai.remove.__v18 = true;
+    ai.remove.__v19 = true;
     return true;
   }
 
   function patchNormalizeUsers(){
     const auth = window.app?.auth;
-    if(!auth?.normalizeUsers || auth.normalizeUsers.__v18) return false;
+    if(!auth?.normalizeUsers || auth.normalizeUsers.__v19) return false;
 
     const original = auth.normalizeUsers.bind(auth);
 
-    const validRoles = new Set([
+    const VALID = new Set([
       'USER','MASTER','ADMIN',
-      '반원','반장','조장','팀장','파트장',
-      'HSE','과장','대리','부장','사원','차장','임원'
+      '반원','반장','조장','팀장','파트장','HSE',
+      '과장','대리','부장','사원','차장','임원'
     ]);
 
     auth.normalizeUsers = function(items){
-      const input = clone(items) || [];
-      const normalized = original(items) || [];
+      const source = clone(items) || [];
+      const result = original(items) || [];
+      const map = new Map(source.map(u => [uidOf(u), u]).filter(([id]) => id));
 
-      const inputMap = new Map(
-        input.map(u => [userId(u), u]).filter(([id]) => id)
-      );
-
-      normalized.forEach(u => {
-        const src = inputMap.get(userId(u));
+      result.forEach(u => {
+        const src = map.get(uidOf(u));
         if(!src) return;
 
-        /*
-         * 원본 normalizeUsers가 비-MASTER를 USER로 바꾸는 문제를 막습니다.
-         * 실제 역할/팀은 Firestore에서 내려온 값을 유지합니다.
-         */
-        if(validRoles.has(String(src.role || ''))){
+        if(VALID.has(String(src.role || ''))){
           u.role = src.role;
         }
 
@@ -15360,10 +15398,10 @@ import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/f
         }
       });
 
-      return normalized;
+      return result;
     };
 
-    auth.normalizeUsers.__v18 = true;
+    auth.normalizeUsers.__v19 = true;
     return true;
   }
 
@@ -15378,49 +15416,56 @@ import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.17.1/f
     installed = true;
 
     patchSaveUsers();
-    patchProposalSaveData();
+    patchSaveData();
     patchDirectProposalSave();
     patchDelete();
     patchNormalizeUsers();
 
+    /*
+     * Do NOT wait for this anonymous sign-in before displaying the UI.
+     * It runs in the background and is only the transport/auth layer.
+     */
+    ensureFirebaseSession()
+      .then(() => {
+        startUserListener();
+        startProposalListener();
+      })
+      .catch(error => {
+        /*
+         * If anonymous Auth is disabled in Firebase Console, keep the existing
+         * application running. If Firestore rules allow public access, the
+         * listeners can still be attached for reads.
+         */
+        console.warn(
+          '[GNP v19] anonymous Firebase session unavailable:',
+          error?.code || error?.message || error
+        );
+        try { startUserListener(); } catch(_){}
+        try { startProposalListener(); } catch(_){}
+      });
+
+    /*
+     * Reconnect listeners whenever the Firebase auth state changes.
+     */
     authUnsub = onAuthStateChanged(gf.auth, user => {
-      if(userUnsub){
-        try { userUnsub(); } catch(_){}
-        userUnsub = null;
-      }
-
-      if(proposalUnsub){
-        try { proposalUnsub(); } catch(_){}
-        proposalUnsub = null;
-      }
-
       if(!user) return;
-
-      /*
-       * 로그인 성공 후 Firebase를 공용 원본으로 구독합니다.
-       */
-      startUsersListener();
-      startProposalsListener();
+      startUserListener();
+      startProposalListener();
     });
 
-    if(gf.auth.currentUser){
-      startUsersListener();
-      startProposalsListener();
-    }
-
-    console.log('[GNP v18] PC↔PC / PC↔Mobile / Mobile↔Mobile sync active');
+    console.log('[GNP v19] Firebase single-source sync installed');
     return true;
   }
 
-  let attempts = 0;
+  let tries = 0;
   const timer = setInterval(() => {
     try {
-      if(install() || ++attempts > 200){
+      if(install() || ++tries > 200){
         clearInterval(timer);
       }
-    } catch(e) {
-      console.error('[GNP v18] install error:', e);
-      if(++attempts > 200) clearInterval(timer);
+    } catch(error){
+      console.error('[GNP v19] install error:', error);
+      if(++tries > 200) clearInterval(timer);
     }
   }, 100);
 
