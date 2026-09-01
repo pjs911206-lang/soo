@@ -15221,107 +15221,108 @@ import {
        4) 기존 UI/사진/권한 코드는 변경하지 않음
      ============================================================ -->
 
-<script id="gnp-v41-realtime-bootstrap-marker">
-window.gnpRealtimeStatus = {
-  version: 'v41',
-  active: false,
-  stage: 'bootstrap-loaded',
-  loadedAt: new Date().toISOString()
-};
-console.log('[GNP v41] realtime bootstrap script loaded');
-</script>
 
-<script type="module" id="gnp-v40-final-realtime-proposals">
-import {
-  collection,
-  doc,
-  getDocs,
-  onSnapshot,
-  setDoc,
-  deleteDoc,
-  serverTimestamp
-} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
-
-(() => {
+<script id="gnp-v42-realtime-dynamic-import">
+(function(){
   'use strict';
 
-  const COLLECTION = 'safetyProposals';
+  const FIRESTORE_URL = "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+  const COLLECTION = "safetyProposals";
+
   let rows = [];
-  let unsub = null;
-  let installed = false;
+  let unsubscribe = null;
+  let started = false;
+  let fs = null;
   let writeChain = Promise.resolve();
 
-  const idOf = x => String(x?.id || '').trim();
+  const setStatus = (extra) => {
+    window.gnpRealtimeStatus = {
+      version: "v42",
+      active: false,
+      stage: "boot",
+      updatedAt: new Date().toISOString(),
+      ...(window.gnpRealtimeStatus || {}),
+      ...(extra || {})
+    };
+  };
+
+  setStatus({stage:"script-loaded"});
+  console.log("[GNP v42] realtime script loaded");
+
+  const idOf = x => String(x?.id || "").trim();
+  const clone = list => (Array.isArray(list) ? list : []).map(x => ({...x}));
 
   function db(){
     const value = window.gnpFirebase?.db;
-    if(!value) throw new Error('Firestore DB가 준비되지 않았습니다.');
+    if(!value) throw new Error("Firestore DB가 준비되지 않았습니다.");
     return value;
   }
 
-  function copyRows(input){
-    return (Array.isArray(input) ? input : []).map(x => ({...x}));
-  }
-
-  function cleanForFirestore(row){
-    const out = {...row};
+  function clean(row){
+    const out = {...(row || {})};
     delete out.syncUpdatedAt;
     delete out.__v37Rows;
     delete out.__v40Rows;
+    delete out.__v42Rows;
     Object.keys(out).forEach(k => {
       if(out[k] === undefined) delete out[k];
     });
     return out;
   }
 
-  function renderNow(){
+  function sortRows(){
+    rows.sort((a,b) => {
+      const na = Number(String(a.id || "").replace(/\D/g,"")) || 0;
+      const nb = Number(String(b.id || "").replace(/\D/g,"")) || 0;
+      return nb - na;
+    });
+  }
+
+  function render(){
     const ai = window.app?.ai1;
     if(!ai) return;
 
-    ai.__v40Rows = copyRows(rows);
+    ai.__v42Rows = clone(rows);
 
-    try {
-      ai.render?.();
-    } catch(error) {
-      console.error('[GNP v40] 목록 렌더 오류:', error);
-    }
+    try { ai.render?.(); }
+    catch(error){ console.error("[GNP v42] render 오류:", error); }
 
-    // 이미 관리 화면이 열려 있을 때 후속 래퍼/레이아웃 변경 뒤에도 한 번 더 갱신
     requestAnimationFrame(() => {
       try { ai.render?.(); } catch(_) {}
     });
   }
 
-  async function put(row){
+  async function writeOne(row){
     const id = idOf(row);
     if(!id) return;
 
-    await setDoc(
-      doc(db(), COLLECTION, id),
+    await fs.setDoc(
+      fs.doc(db(), COLLECTION, id),
       {
-        ...cleanForFirestore(row),
+        ...clean(row),
         id,
-        syncSource: 'GNP-v40',
-        syncUpdatedAt: serverTimestamp()
+        syncSource: "GNP-v42",
+        syncUpdatedAt: fs.serverTimestamp()
       },
       {merge:true}
     );
   }
 
-  async function removeDoc(id){
-    const value = String(id || '').trim();
+  async function deleteOne(id){
+    const value = String(id || "").trim();
     if(!value) return;
-    await deleteDoc(doc(db(), COLLECTION, value));
+    await fs.deleteDoc(fs.doc(db(), COLLECTION, value));
   }
 
-  function queue(label, fn){
+  function queue(label, task){
     writeChain = writeChain
       .catch(() => {})
-      .then(fn)
+      .then(task)
       .catch(error => {
-        console.error('[GNP v40]', label, error);
+        console.error("[GNP v42]", label, error);
         throw error;
       });
+
     return writeChain;
   }
 
@@ -15329,40 +15330,36 @@ import {
     const ai = window.app?.ai1;
     if(!ai) return false;
 
-    // 조회는 localStorage가 아니라 항상 최신 Firestore snapshot 메모리만 사용
     ai.getData = function(){
-      return copyRows(rows);
+      return clone(rows);
     };
 
-    // 기존 상태변경/결재/평가/수정 코드가 saveData(rows)를 호출하면
-    // 변경된 문서만 Firestore에 쓰고, 빠진 문서는 삭제
     ai.saveData = function(nextRows){
-      const next = copyRows(nextRows).filter(x => idOf(x));
+      const next = clone(nextRows).filter(x => idOf(x));
       const beforeMap = new Map(rows.map(x => [idOf(x), x]));
       const nextMap = new Map(next.map(x => [idOf(x), x]));
 
-      // UI는 먼저 즉시 반영
       rows = next;
-      renderNow();
+      sortRows();
+      render();
 
-      queue('saveData', async () => {
-        for(const item of next){
-          const id = idOf(item);
-          const before = beforeMap.get(id);
+      queue("saveData", async () => {
+        for(const row of next){
+          const id = idOf(row);
+          const old = beforeMap.get(id);
 
-          if(JSON.stringify(cleanForFirestore(before || {})) !==
-             JSON.stringify(cleanForFirestore(item))){
-            await put(item);
+          if(JSON.stringify(clean(old || {})) !== JSON.stringify(clean(row))){
+            await writeOne(row);
           }
         }
 
         for(const id of beforeMap.keys()){
           if(!nextMap.has(id)){
-            await removeDoc(id);
+            await deleteOne(id);
           }
         }
       }).catch(error => {
-        alert(`안전제안 Firestore 동기화 실패\n\n${error?.message || error}`);
+        alert("안전제안 Firestore 동기화 실패\n\n" + (error?.message || error));
       });
 
       return true;
@@ -15371,100 +15368,114 @@ import {
     return true;
   }
 
-  function startListener(){
-    if(unsub){
-      try { unsub(); } catch(_) {}
+  function startSnapshot(){
+    if(unsubscribe){
+      try { unsubscribe(); } catch(_) {}
     }
 
-    unsub = onSnapshot(
-      collection(db(), COLLECTION),
+    unsubscribe = fs.onSnapshot(
+      fs.collection(db(), COLLECTION),
       snapshot => {
-        rows = snapshot.docs
-          .map(d => {
-            const data = d.data() || {};
-            return {...data, id:String(data.id || d.id)};
-          })
-          .filter(x => idOf(x));
+        rows = snapshot.docs.map(d => {
+          const data = d.data() || {};
+          return {...data, id:String(data.id || d.id)};
+        }).filter(x => idOf(x));
 
-        // 최신 등록순 유지
-        rows.sort((a,b) => {
-          const na = Number(String(a.id).replace(/\D/g,'')) || 0;
-          const nb = Number(String(b.id).replace(/\D/g,'')) || 0;
-          return nb - na;
+        sortRows();
+        render();
+
+        setStatus({
+          active:true,
+          stage:"realtime-active",
+          count:rows.length,
+          source:snapshot.metadata.fromCache ? "cache" : "server",
+          lastUpdate:new Date().toISOString()
         });
 
-        renderNow();
-
-        window.gnpRealtimeStatus = {
-          active:true,
-          count:rows.length,
-          lastUpdate:new Date().toISOString()
-        };
-
         console.log(
-          '[GNP v41] REALTIME 수신 완료:',
-          rows.length + '건',
-          snapshot.metadata.fromCache ? '(cache)' : '(server)'
+          "[GNP v42] REALTIME 수신:",
+          rows.length + "건",
+          snapshot.metadata.fromCache ? "(cache)" : "(server)"
         );
       },
       error => {
-        window.gnpRealtimeStatus = {
+        setStatus({
           active:false,
+          stage:"snapshot-error",
           error:String(error?.message || error)
-        };
-        console.error('[GNP v41] REALTIME 수신 실패:', error);
+        });
+        console.error("[GNP v42] onSnapshot 오류:", error);
       }
     );
   }
 
-  async function install(){
-    if(installed) return true;
-    if(!window.gnpFirebase?.db || !window.app?.ai1) return false;
+  async function start(){
+    if(started) return true;
 
-    // onSnapshot 전에 서버 현재값을 한 번 직접 읽어 초기 화면을 확정
-    const snap = await getDocs(collection(db(), COLLECTION));
-    rows = snap.docs.map(d => {
-      const data = d.data() || {};
-      return {...data, id:String(data.id || d.id)};
-    }).filter(x => idOf(x));
+    if(!window.gnpFirebase?.db){
+      setStatus({stage:"waiting-firebase"});
+      return false;
+    }
 
-    rows.sort((a,b) => {
-      const na = Number(String(a.id).replace(/\D/g,'')) || 0;
-      const nb = Number(String(b.id).replace(/\D/g,'')) || 0;
-      return nb - na;
-    });
+    if(!window.app?.ai1){
+      setStatus({stage:"waiting-app"});
+      return false;
+    }
 
-    installAppBridge();
-    renderNow();
-    startListener();
+    started = true;
+    setStatus({stage:"import-start"});
 
-    installed = true;
+    try {
+      // 콘솔에서 직접 성공한 것과 동일한 dynamic import 방식.
+      fs = await import(FIRESTORE_URL);
+      setStatus({stage:"import-ok"});
 
-    window.gnpRealtimeStatus = {
-      active:true,
-      count:rows.length,
-      lastUpdate:new Date().toISOString(),
-      version:'v41'
-    };
+      const snap = await fs.getDocs(fs.collection(db(), COLLECTION));
 
-    console.log('[GNP v41] PC↔모바일 Firestore 실시간 조회 ACTIVE:', rows.length + '건');
-    return true;
+      rows = snap.docs.map(d => {
+        const data = d.data() || {};
+        return {...data, id:String(data.id || d.id)};
+      }).filter(x => idOf(x));
+
+      sortRows();
+
+      installAppBridge();
+      render();
+      startSnapshot();
+
+      setStatus({
+        active:true,
+        stage:"initial-read-ok",
+        count:rows.length,
+        lastUpdate:new Date().toISOString()
+      });
+
+      console.log("[GNP v42] 초기 Firestore 조회 완료:", rows.length + "건");
+      return true;
+
+    } catch(error) {
+      started = false;
+      setStatus({
+        active:false,
+        stage:"start-error",
+        error:String(error?.message || error)
+      });
+      console.error("[GNP v42] 시작 실패:", error);
+      return false;
+    }
   }
 
   let tries = 0;
-  const timer = setInterval(() => {
-    install().then(ok => {
-      if(ok || ++tries > 300) clearInterval(timer);
-    }).catch(error => {
-      console.error('[GNP v41] 설치 오류:', error);
-      if(++tries > 300) clearInterval(timer);
-    });
+  const timer = setInterval(async () => {
+    const ok = await start();
+    if(ok || ++tries > 300) clearInterval(timer);
   }, 100);
 
-  window.addEventListener('beforeunload', () => {
-    try { unsub?.(); } catch(_) {}
+  window.addEventListener("beforeunload", () => {
+    try { unsubscribe?.(); } catch(_) {}
   });
 })();
 </script>
+
 </body>
 </html>
