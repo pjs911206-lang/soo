@@ -504,6 +504,16 @@
 <div id="mobile-menu-backdrop" aria-hidden="true"></div>
 <button id="mobile-menu-button" type="button" aria-label="메뉴 열기" aria-expanded="false"><i class="fas fa-bars"></i></button>
 <main id="main-body" class="flex-1 flex flex-col min-w-0 overflow-hidden hidden">
+    <!-- GNP v51: 모바일 상단 사용자/개인정보 바 - 정적 DOM 복구 -->
+    <div id="gnp-mobile-toolbar-v51" aria-label="모바일 사용자 메뉴">
+        <button id="gnp-mobile-profile-v51" type="button" aria-label="개인정보 변경" title="개인정보 변경">
+            <span class="gnp-v51-usertext">
+                <span id="gnp-mobile-user-info-v51">사용자</span>
+                <span id="gnp-mobile-user-role-v51">-</span>
+            </span>
+            <span id="gnp-mobile-user-avatar-v51" aria-hidden="true">U</span>
+        </button>
+    </div>
     <header class="bg-white h-16 border-b flex items-center justify-between px-8 shadow-sm">
         <h2 id="view-title" class="text-xl font-bold text-gray-800 tracking-tight">대시보드</h2>
         <div class="flex items-center gap-4">
@@ -16234,214 +16244,215 @@ import {
 
 
 
-<!-- GNP v50 FINAL: 모바일 상단바를 독립 구조로 확실하게 복구 (다른 기능 미변경) -->
-<style id="gnp-v50-mobile-accountbar-style">
-  #gnp-mobile-accountbar-v50{display:none;}
-  @media (max-width:768px){
-    /* 기존 헤더는 여러 레거시 패치의 영향을 받으므로 모바일에서만 새 전용 상단바를 사용 */
-    #main-body > header{display:none !important;}
-
-    #gnp-mobile-accountbar-v50{
-      display:flex !important;
-      visibility:visible !important;
-      opacity:1 !important;
-      position:relative !important;
-      box-sizing:border-box !important;
-      width:100% !important;
-      height:60px !important;
-      min-height:60px !important;
-      flex:0 0 60px !important;
-      align-items:center !important;
-      justify-content:flex-end !important;
-      padding:0 10px 0 56px !important;
-      background:#fff !important;
-      border-bottom:1px solid #e2e8f0 !important;
-      box-shadow:0 1px 2px rgba(15,23,42,.04) !important;
-      z-index:1002 !important;
-      overflow:visible !important;
-    }
-
-    #mobile-menu-button{
-      display:inline-flex !important;
-      visibility:visible !important;
-      opacity:1 !important;
-      position:fixed !important;
-      top:11px !important;
-      left:12px !important;
-      z-index:1100 !important;
-    }
-
-    #gnp-mobile-accountbar-v50 .gnp-v50-profile{
-      display:flex !important;
-      align-items:center !important;
-      justify-content:flex-end !important;
-      gap:7px !important;
-      min-width:0 !important;
-      max-width:calc(100vw - 72px) !important;
-      margin-left:auto !important;
-      cursor:pointer !important;
-      -webkit-tap-highlight-color:transparent;
-      user-select:none;
-    }
-    #gnp-mobile-accountbar-v50 .gnp-v50-text{
-      min-width:0 !important;
-      text-align:right !important;
-      line-height:1.15 !important;
-    }
-    #gnp-mobile-user-info-v50{
-      display:block !important;
-      max-width:210px !important;
-      white-space:nowrap !important;
-      overflow:hidden !important;
-      text-overflow:ellipsis !important;
-      font-size:11px !important;
-      line-height:1.2 !important;
-      font-weight:800 !important;
-      color:#374151 !important;
-    }
-    #gnp-mobile-user-role-v50{
-      display:block !important;
-      margin-top:2px !important;
-      max-width:210px !important;
-      white-space:nowrap !important;
-      overflow:hidden !important;
-      text-overflow:ellipsis !important;
-      font-size:9px !important;
-      line-height:1.15 !important;
-      font-weight:900 !important;
-      color:#2563eb !important;
-    }
-    #gnp-mobile-user-avatar-v50{
-      display:flex !important;
-      align-items:center !important;
-      justify-content:center !important;
-      width:36px !important;
-      height:36px !important;
-      min-width:36px !important;
-      min-height:36px !important;
-      border-radius:9999px !important;
-      background:#003b72 !important;
-      color:#fff !important;
-      font-size:12px !important;
-      font-weight:900 !important;
-      box-shadow:0 1px 4px rgba(15,23,42,.14) !important;
-    }
-    @media (max-width:380px){
-      #gnp-mobile-user-info-v50{max-width:160px !important;font-size:10px !important;}
-      #gnp-mobile-user-role-v50{max-width:160px !important;font-size:8px !important;}
-      #gnp-mobile-user-avatar-v50{width:34px !important;height:34px !important;min-width:34px !important;min-height:34px !important;}
-    }
+<!-- ============================================================
+     GNP v51 FINAL MOBILE TOPBAR
+     - 정적 DOM으로 모바일 상단바를 main-body 내부에 직접 배치
+     - 레거시 header는 모바일에서 높이만 0으로 접어 충돌 차단
+     - 기존 햄버거/사이드바, 개인정보 변경 모달을 그대로 재사용
+     - 안전제안/Firebase/결재/삭제 로직 미변경
+     ============================================================ -->
+<style id="gnp-v51-mobile-topbar-style">
+#gnp-mobile-toolbar-v51{display:none;}
+@media (max-width:768px){
+  #gnp-mobile-toolbar-v51{
+    display:flex !important;
+    visibility:visible !important;
+    opacity:1 !important;
+    position:relative !important;
+    box-sizing:border-box !important;
+    width:100% !important;
+    height:60px !important;
+    min-height:60px !important;
+    flex:0 0 60px !important;
+    align-items:center !important;
+    justify-content:flex-end !important;
+    padding:0 10px 0 56px !important;
+    margin:0 !important;
+    background:#ffffff !important;
+    border-bottom:1px solid #e2e8f0 !important;
+    box-shadow:0 1px 3px rgba(15,23,42,.06) !important;
+    z-index:1005 !important;
+    overflow:visible !important;
   }
+  #gnp-mobile-profile-v51{
+    appearance:none !important;
+    -webkit-appearance:none !important;
+    border:0 !important;
+    background:transparent !important;
+    padding:0 !important;
+    margin:0 !important;
+    min-width:0 !important;
+    max-width:calc(100vw - 72px) !important;
+    height:100% !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:flex-end !important;
+    gap:8px !important;
+    color:inherit !important;
+    cursor:pointer !important;
+    -webkit-tap-highlight-color:transparent !important;
+  }
+  #gnp-mobile-profile-v51 .gnp-v51-usertext{
+    display:flex !important;
+    flex-direction:column !important;
+    align-items:flex-end !important;
+    justify-content:center !important;
+    min-width:0 !important;
+    max-width:220px !important;
+    text-align:right !important;
+  }
+  #gnp-mobile-user-info-v51{
+    display:block !important;
+    width:100% !important;
+    max-width:220px !important;
+    white-space:nowrap !important;
+    overflow:hidden !important;
+    text-overflow:ellipsis !important;
+    font-size:11px !important;
+    line-height:1.2 !important;
+    font-weight:800 !important;
+    color:#374151 !important;
+  }
+  #gnp-mobile-user-role-v51{
+    display:block !important;
+    width:100% !important;
+    max-width:220px !important;
+    margin-top:2px !important;
+    white-space:nowrap !important;
+    overflow:hidden !important;
+    text-overflow:ellipsis !important;
+    font-size:9px !important;
+    line-height:1.15 !important;
+    font-weight:900 !important;
+    color:#2563eb !important;
+  }
+  #gnp-mobile-user-avatar-v51{
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    width:36px !important;
+    height:36px !important;
+    min-width:36px !important;
+    min-height:36px !important;
+    border-radius:9999px !important;
+    background:#003b72 !important;
+    color:#fff !important;
+    font-size:12px !important;
+    line-height:1 !important;
+    font-weight:900 !important;
+    box-shadow:0 1px 4px rgba(15,23,42,.14) !important;
+  }
+  #mobile-menu-button{
+    display:inline-flex !important;
+    visibility:visible !important;
+    opacity:1 !important;
+    position:fixed !important;
+    top:11px !important;
+    left:12px !important;
+    z-index:1100 !important;
+    width:38px !important;
+    height:38px !important;
+  }
+  @media (max-width:380px){
+    #gnp-mobile-profile-v51 .gnp-v51-usertext,
+    #gnp-mobile-user-info-v51,
+    #gnp-mobile-user-role-v51{max-width:165px !important;}
+    #gnp-mobile-user-info-v51{font-size:10px !important;}
+    #gnp-mobile-user-role-v51{font-size:8px !important;}
+    #gnp-mobile-user-avatar-v51{width:34px !important;height:34px !important;min-width:34px !important;min-height:34px !important;}
+  }
+}
 </style>
-<script id="gnp-v50-mobile-accountbar-script">
+<script id="gnp-v51-mobile-topbar-script">
 (function(){
   'use strict';
 
   function getApp(){
-    try{ if(typeof app !== 'undefined' && app) return app; }catch(_){ }
+    try { if(typeof app !== 'undefined' && app) return app; } catch(_) {}
     return window.app || null;
   }
+  function mobile(){ return window.matchMedia ? window.matchMedia('(max-width: 768px)').matches : window.innerWidth <= 768; }
 
-  function ensureBar(){
-    const main=document.getElementById('main-body');
-    if(!main) return null;
-    let bar=document.getElementById('gnp-mobile-accountbar-v50');
-    if(bar) return bar;
-
-    bar=document.createElement('div');
-    bar.id='gnp-mobile-accountbar-v50';
-    bar.setAttribute('aria-label','사용자 메뉴');
-    bar.innerHTML=`
-      <div class="gnp-v50-profile" id="gnp-mobile-profile-v50" role="button" tabindex="0" title="개인정보 변경">
-        <div class="gnp-v50-text">
-          <span id="gnp-mobile-user-info-v50">사용자</span>
-          <span id="gnp-mobile-user-role-v50">-</span>
-        </div>
-        <div id="gnp-mobile-user-avatar-v50" aria-hidden="true">U</div>
-      </div>`;
-
-    /* main-body 내부의 첫 번째 요소로 삽입해 스크롤 영역과 분리된 상단바로 유지 */
-    main.insertBefore(bar, main.firstChild);
-
-    const profile=bar.querySelector('#gnp-mobile-profile-v50');
-    const openProfile=function(){
-      const originalAvatar=document.getElementById('user-avatar');
-      if(originalAvatar){
-        originalAvatar.click();
-        setTimeout(function(){
-          const modal=document.getElementById('profile-settings-modal');
-          if(modal && !modal.classList.contains('open')) originalAvatar.click();
-        },80);
-      }
-    };
-    profile.addEventListener('click',openProfile);
-    profile.addEventListener('keydown',function(e){
-      if(e.key==='Enter' || e.key===' '){ e.preventDefault(); openProfile(); }
-    });
-    return bar;
+  function collapseLegacyHeader(){
+    const header=document.querySelector('#main-body > header');
+    if(!header) return;
+    if(mobile()){
+      header.style.setProperty('height','0','important');
+      header.style.setProperty('min-height','0','important');
+      header.style.setProperty('flex','0 0 0','important');
+      header.style.setProperty('padding','0','important');
+      header.style.setProperty('margin','0','important');
+      header.style.setProperty('border','0','important');
+      header.style.setProperty('box-shadow','none','important');
+      header.style.setProperty('overflow','hidden','important');
+      header.style.setProperty('pointer-events','none','important');
+    }else{
+      ['height','min-height','flex','padding','margin','border','box-shadow','overflow','pointer-events'].forEach(function(p){
+        header.style.removeProperty(p);
+      });
+    }
   }
 
-  function sync(){
-    const bar=ensureBar();
-    if(!bar) return;
+  function syncUser(){
+    if(!mobile()) return;
     const a=getApp();
-    const u=a?.auth?.currentUser;
-
+    const u=a && a.auth ? a.auth.currentUser : null;
     const srcInfo=document.getElementById('user-info');
     const srcRole=document.getElementById('user-role');
     const srcAvatar=document.getElementById('user-avatar');
-    const info=document.getElementById('gnp-mobile-user-info-v50');
-    const role=document.getElementById('gnp-mobile-user-role-v50');
-    const avatar=document.getElementById('gnp-mobile-user-avatar-v50');
-
-    const userText=(srcInfo?.textContent || '').trim() || (u ? `${u.name || u.id || ''} (${u.team || '미지정'})` : '사용자');
-    const roleText=(srcRole?.textContent || '').trim() || String(u?.role || '-');
-    const avatarText=(srcAvatar?.textContent || '').trim() || String(u?.name || u?.id || 'U').charAt(0);
-
+    const info=document.getElementById('gnp-mobile-user-info-v51');
+    const role=document.getElementById('gnp-mobile-user-role-v51');
+    const avatar=document.getElementById('gnp-mobile-user-avatar-v51');
+    const fallbackName=u ? String(u.name || u.id || '사용자') : '사용자';
+    const fallbackTeam=u ? String(u.team || '미지정') : '';
+    const userText=(srcInfo && String(srcInfo.textContent||'').trim()) || (fallbackTeam ? fallbackName+' ('+fallbackTeam+')' : fallbackName);
+    const roleText=(srcRole && String(srcRole.textContent||'').trim()) || (u ? String(u.role || '-') : '-');
+    const avatarText=(srcAvatar && String(srcAvatar.textContent||'').trim()) || fallbackName.charAt(0) || 'U';
     if(info) info.textContent=userText;
     if(role) role.textContent=roleText;
     if(avatar) avatar.textContent=avatarText.charAt(0) || 'U';
   }
 
-  function boot(){
-    ensureBar();
-    sync();
-
-    const main=document.getElementById('main-body');
-    if(main && !main.dataset.v50Observed){
-      main.dataset.v50Observed='1';
-      new MutationObserver(sync).observe(main,{attributes:true,attributeFilter:['class','style']});
-    }
-
-    const originalHeader=document.querySelector('#main-body > header');
-    if(originalHeader && !originalHeader.dataset.v50Observed){
-      originalHeader.dataset.v50Observed='1';
-      new MutationObserver(sync).observe(originalHeader,{subtree:true,childList:true,characterData:true});
+  function openProfile(){
+    const original=document.getElementById('user-avatar');
+    if(original){
+      original.click();
+      window.setTimeout(function(){
+        const modal=document.getElementById('profile-settings-modal');
+        if(modal && !modal.classList.contains('open')){
+          original.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window}));
+        }
+      },60);
+      return;
     }
   }
 
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true});
-  else boot();
+  function bind(){
+    const btn=document.getElementById('gnp-mobile-profile-v51');
+    if(btn && btn.dataset.boundV51!=='1'){
+      btn.dataset.boundV51='1';
+      btn.addEventListener('click',openProfile);
+    }
+    collapseLegacyHeader();
+    syncUser();
+  }
 
-  window.addEventListener('load',boot);
-  window.addEventListener('resize',sync,{passive:true});
-  document.addEventListener('visibilitychange',function(){ if(!document.hidden) sync(); });
-  [0,100,300,700,1200,2000,4000,7000].forEach(function(t){ setTimeout(boot,t); });
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bind,{once:true});
+  else bind();
+  window.addEventListener('load',bind);
+  window.addEventListener('resize',bind,{passive:true});
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden) bind(); });
 
-  /* 로그인 직후/Firestore 프로필 갱신 직후 사용자명이 바뀌는 경우도 따라감 */
-  let count=0;
-  const timer=setInterval(function(){
-    sync();
-    if(++count>=120) clearInterval(timer);
+  [0,50,150,300,600,1000,1800,3000,5000,8000].forEach(function(t){ window.setTimeout(bind,t); });
+  let n=0;
+  const timer=window.setInterval(function(){
+    bind();
+    if(++n>=120) window.clearInterval(timer);
   },250);
 
-  window.gnpMobileTopbarV50={sync:sync,openProfile:function(){
-    const el=document.getElementById('gnp-mobile-profile-v50');
-    if(el) el.click();
-  }};
-  console.log('[GNP v50] 모바일 전용 상단바 복구 완료');
+  window.gnpMobileTopbarV51={sync:bind,openProfile:openProfile};
+  console.log('[GNP v51] 모바일 상단바 정적 복구 활성');
 })();
 </script>
-
 </body>
 </html>
