@@ -13532,327 +13532,6 @@ const app = {
      - onSnapshot() is the only shared refresh path
      - No localStorage persistence for gnp_ai1_proposals
      ============================================================ -->
-<script type="module" id="gnp-v36-appai1-firestore-direct">
-import {
-  collection,
-  doc,
-  getDocs,
-  setDoc,
-  deleteDoc,
-  onSnapshot,
-  serverTimestamp
-} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
-
-(() => {
-  'use strict';
-
-  const COLLECTION = 'safetyProposals';
-  const LEGACY_KEY = 'gnp_ai1_proposals';
-
-  let firestoreRows = [];
-  let unsubscribe = null;
-  let installed = false;
-  let writeChain = Promise.resolve();
-  let bootstrapDone = false;
-
-  const clone = value => {
-    try { return JSON.parse(JSON.stringify(value)); }
-    catch { return value; }
-  };
-
-  const idOf = row => String(row?.id || '').trim();
-
-  const db = () => {
-    const value = window.gnpFirebase?.db;
-    if (!value) throw new Error('Firestore가 초기화되지 않았습니다.');
-    return value;
-  };
-
-  const enqueue = (label, task) => {
-    writeChain = writeChain
-      .catch(() => {})
-      .then(task)
-      .catch(error => {
-        console.error('[GNP v36]', label, error);
-        throw error;
-      });
-    return writeChain;
-  };
-
-  const repaint = () => {
-    try {
-      const ai = window.app?.ai1;
-      if (ai) {
-        ai.__v36FirestoreRows = clone(firestoreRows);
-        ai.render?.();
-      }
-    } catch (error) {
-      console.error('[GNP v36] render', error);
-    }
-  };
-
-  async function writeRow(row) {
-    const id = idOf(row);
-    if (!id) return;
-
-    const payload = clone(row) || {};
-    delete payload.__v36FirestoreRows;
-
-    await setDoc(
-      doc(db(), COLLECTION, id),
-      {
-        ...payload,
-        id,
-        syncSource: 'GNP-v36',
-        syncedAt: serverTimestamp()
-      },
-      { merge: true }
-    );
-  }
-
-  async function deleteRow(id) {
-    const value = String(id || '').trim();
-    if (!value) return;
-    await deleteDoc(doc(db(), COLLECTION, value));
-  }
-
-  async function saveRows(nextRows) {
-    const next = (Array.isArray(nextRows) ? clone(nextRows) : [])
-      .filter(row => idOf(row));
-
-    const beforeMap = new Map(
-      firestoreRows.map(row => [idOf(row), row])
-    );
-    const afterMap = new Map(
-      next.map(row => [idOf(row), row])
-    );
-
-    firestoreRows = next;
-    repaint();
-
-    return enqueue('saveData', async () => {
-      for (const row of next) {
-        const id = idOf(row);
-        const before = beforeMap.get(id);
-
-        if (JSON.stringify(before) !== JSON.stringify(row)) {
-          await writeRow(row);
-        }
-      }
-
-      for (const [id] of beforeMap) {
-        if (!afterMap.has(id)) {
-          await deleteRow(id);
-        }
-      }
-    });
-  }
-
-  /*
-   * One-time baseline:
-   * The currently active device has the 47-row legacy cache selected by the
-   * user as the canonical starting point. Only migrate when that legacy cache
-   * exists and Firestore contains fewer records. After migration, the browser
-   * cache is removed so the proposal feature cannot fall back to it.
-   */
-  async function bootstrapCanonicalDevice() {
-    if (bootstrapDone) return;
-    bootstrapDone = true;
-
-    let localRows = [];
-
-    try {
-      const raw = localStorage.getItem(LEGACY_KEY);
-      const parsed = JSON.parse(raw || '[]');
-      localRows = Array.isArray(parsed)
-        ? parsed.filter(row => idOf(row))
-        : [];
-    } catch (_) {}
-
-    if (!localRows.length) return;
-
-    const cloudSnap = await getDocs(collection(db(), COLLECTION));
-
-    /*
-     * Only do the migration automatically if this device has MORE data than
-     * Firestore. This matches the current known situation (47 vs 44) and
-     * avoids overwriting an already-synced Firestore dataset on other PCs.
-     */
-    if (localRows.length <= cloudSnap.size) return;
-
-    for (const row of localRows) {
-      await writeRow(row);
-    }
-
-    const keep = new Set(localRows.map(idOf));
-
-    for (const item of cloudSnap.docs) {
-      const cloudId = String(item.data()?.id || item.id);
-      if (!keep.has(cloudId)) {
-        await deleteDoc(doc(db(), COLLECTION, item.id));
-      }
-    }
-
-    /*
-     * Remove ONLY the legacy proposal cache after successful migration.
-     * Other application localStorage keys remain untouched.
-     */
-    try {
-      localStorage.removeItem(LEGACY_KEY);
-    } catch (_) {}
-
-    firestoreRows = localRows;
-    repaint();
-
-    console.log(
-      '[GNP v36] canonical proposal bootstrap complete:',
-      localRows.length
-    );
-  }
-
-  function startRealtime() {
-    if (unsubscribe) {
-      try { unsubscribe(); } catch (_) {}
-    }
-
-    unsubscribe = onSnapshot(
-      collection(db(), COLLECTION),
-      snapshot => {
-        firestoreRows = snapshot.docs
-          .map(item => {
-            const payload = item.data() || {};
-            return {
-              ...payload,
-              id: String(payload.id || item.id)
-            };
-          })
-          .filter(row => idOf(row));
-
-        repaint();
-
-        console.log(
-          '[GNP v36] safetyProposals realtime:',
-          firestoreRows.length
-        );
-      },
-      error => {
-        console.error(
-          '[GNP v36] safetyProposals listener error:',
-          error
-        );
-      }
-    );
-  }
-
-  function patchAI1() {
-    const ai = window.app?.ai1;
-    if (!ai) return false;
-
-    /*
-     * This is the critical replacement:
-     * old app.ai1.getData() -> localStorage
-     * new app.ai1.getData() -> Firestore cache
-     */
-    ai.getData = function() {
-      return clone(firestoreRows);
-    };
-
-    /*
-     * Existing AI1 save flow can continue calling saveData().
-     * The data is written directly to Firestore.
-     */
-    ai.saveData = function(rows) {
-      saveRows(rows).catch(error => {
-        alert(
-          '안전제안 저장에 실패했습니다.\n\n' +
-          (error?.message || error)
-        );
-      });
-
-      return true;
-    };
-
-    /*
-     * Delete handlers:
-     * Do NOT call legacy handlers because they can push the old list back
-     * into localStorage. Instead, update the in-memory Firestore cache and
-     * delete the exact Firestore document.
-     */
-    ['remove', 'delete', 'deleteProposal'].forEach(name => {
-      if (typeof ai[name] !== 'function') return;
-      if (ai[name].__v36Wrapped) return;
-
-      ai[name] = function(id) {
-        const value = String(id || '').trim();
-        if (!value) return false;
-
-        firestoreRows = firestoreRows.filter(
-          row => idOf(row) !== value
-        );
-
-        repaint();
-
-        enqueue(`delete:${name}`, () => deleteRow(value))
-          .catch(error => {
-            alert(
-              '안전제안 삭제에 실패했습니다.\n\n' +
-              (error?.message || error)
-            );
-          });
-
-        return true;
-      };
-
-      ai[name].__v36Wrapped = true;
-    });
-
-    return true;
-  }
-
-  function install() {
-    if (installed) return true;
-
-    if (!window.gnpFirebase?.db) return false;
-    if (!window.app?.ai1) return false;
-
-    /*
-     * Bootstrap first. This may copy the selected mobile baseline to
-     * Firestore exactly once.
-     */
-    return bootstrapCanonicalDevice()
-      .then(() => {
-        patchAI1();
-        startRealtime();
-        installed = true;
-        repaint();
-
-        console.log(
-          '[GNP v36] app.ai1 Firestore direct mode ACTIVE'
-        );
-
-        return true;
-      })
-      .catch(error => {
-        console.error('[GNP v36] install failed', error);
-        return false;
-      });
-  }
-
-  let attempts = 0;
-  const timer = setInterval(() => {
-    install().then(ok => {
-      if (ok || ++attempts > 300) {
-        clearInterval(timer);
-      }
-    });
-  }, 100);
-
-  window.addEventListener('beforeunload', () => {
-    try { unsubscribe?.(); } catch (_) {}
-  });
-})();
-</script>
-
 </body>
 
 <!-- FINAL DATA SYNC ONLY: preserve latest UI, synchronize proposals through Firebase -->
@@ -14942,3 +14621,494 @@ import {
 </script>
 
 </html>
+
+
+<!-- ============================================================
+     GNP v37 FINAL OVERRIDE
+     IMPORTANT: deliberately placed AFTER </html>.
+     The source file contains legacy scripts after/before closing tags
+     that can overwrite app.ai1. This final bridge runs last.
+     ============================================================ -->
+<script type="module" id="gnp-v37-final-firestore-authority">
+import {
+  collection,
+  doc,
+  getDocs,
+  onSnapshot,
+  setDoc,
+  deleteDoc,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+
+(() => {
+  'use strict';
+
+  const PROPOSAL_KEY = 'gnp_ai1_proposals';
+  const USERS_KEY = 'gnp_users';
+  const COLLECTION = 'safetyProposals';
+  const USER_COLLECTION = 'users';
+
+  let proposalRows = [];
+  let userRows = [];
+  let proposalUnsub = null;
+  let userUnsub = null;
+  let installed = false;
+  let bootstrapDone = false;
+  let writeChain = Promise.resolve();
+
+  const clone = v => {
+    try { return JSON.parse(JSON.stringify(v)); }
+    catch { return v; }
+  };
+
+  const pid = r => String(r?.id || '').trim();
+  const uid = r => String(r?.id || r?.legacyId || r?.name || '').trim();
+
+  function getDb() {
+    const db = window.gnpFirebase?.db;
+    if(!db) throw new Error('Firestore DB가 없습니다.');
+    return db;
+  }
+
+  function enqueue(label, work) {
+    writeChain = writeChain
+      .catch(() => {})
+      .then(work)
+      .catch(error => {
+        console.error('[GNP v37]', label, error);
+        throw error;
+      });
+
+    return writeChain;
+  }
+
+  function redraw() {
+    try {
+      const ai = window.app?.ai1;
+      if(ai) {
+        ai.__v37Rows = clone(proposalRows);
+        if(typeof ai.render === 'function') ai.render();
+      }
+    } catch(error) {
+      console.error('[GNP v37] render error', error);
+    }
+
+    try {
+      const me = window.app?.auth?.currentUser;
+      if(me) {
+        const fresh = userRows.find(u => uid(u) === uid(me));
+        if(fresh) {
+          window.app.auth.currentUser = {...me, ...fresh};
+
+          const info = document.getElementById('user-info');
+          const role = document.getElementById('user-role');
+          const avatar = document.getElementById('user-avatar');
+
+          if(info) info.textContent =
+            `${fresh.name || fresh.id || ''} (${fresh.team || '미지정'})`;
+          if(role) role.textContent = String(fresh.role || '반원');
+          if(avatar) avatar.textContent =
+            String(fresh.name || fresh.id || 'G').charAt(0);
+        }
+      }
+
+      window.app?.ui?.renderUserAdmin?.();
+      window.renderPermissionV3?.();
+    } catch(error) {
+      console.error('[GNP v37] user render error', error);
+    }
+  }
+
+  async function writeProposal(row) {
+    const id = pid(row);
+    if(!id) return;
+
+    const payload = clone(row) || {};
+    Object.keys(payload).forEach(k => {
+      if(payload[k] === undefined) delete payload[k];
+    });
+
+    await setDoc(
+      doc(getDb(), COLLECTION, id),
+      {
+        ...payload,
+        id,
+        syncSource:'GNP-v37',
+        syncUpdatedAt:serverTimestamp()
+      },
+      {merge:true}
+    );
+  }
+
+  async function deleteProposal(id) {
+    const value = String(id || '').trim();
+    if(!value) return;
+    await deleteDoc(doc(getDb(), COLLECTION, value));
+  }
+
+  async function applyProposalList(nextRows) {
+    const next = (Array.isArray(nextRows) ? clone(nextRows) : [])
+      .filter(row => pid(row));
+
+    const before = new Map(
+      proposalRows.map(row => [pid(row), row])
+    );
+    const after = new Map(
+      next.map(row => [pid(row), row])
+    );
+
+    proposalRows = next;
+    redraw();
+
+    return enqueue('proposal write', async () => {
+      for(const row of next) {
+        const id=pid(row);
+        if(JSON.stringify(before.get(id)) !== JSON.stringify(row)) {
+          await writeProposal(row);
+        }
+      }
+
+      for(const id of before.keys()) {
+        if(!after.has(id)) {
+          await deleteProposal(id);
+        }
+      }
+    });
+  }
+
+  async function bootstrapMobileSet() {
+    if(bootstrapDone) return;
+    bootstrapDone=true;
+
+    let local=[];
+    try {
+      const raw=localStorage.getItem(PROPOSAL_KEY);
+      const parsed=JSON.parse(raw||'[]');
+      local=Array.isArray(parsed) ? parsed.filter(x=>pid(x)) : [];
+    } catch(_) {}
+
+    if(local.length < 47) return;
+
+    const cloud=await getDocs(collection(getDb(), COLLECTION));
+
+    /*
+     * The user selected the current mobile's 47-row set as the baseline.
+     * Only a cloud deficit triggers the one-time baseline copy.
+     */
+    if(cloud.size >= local.length) return;
+
+    for(const row of local) {
+      await writeProposal(row);
+    }
+
+    const keep=new Set(local.map(pid));
+    for(const item of cloud.docs) {
+      const id=String(item.data()?.id || item.id);
+      if(!keep.has(id)) {
+        await deleteDoc(doc(getDb(), COLLECTION, item.id));
+      }
+    }
+
+    try { localStorage.removeItem(PROPOSAL_KEY); } catch(_) {}
+
+    proposalRows=local;
+    redraw();
+
+    alert(
+      `현재 모바일의 안전제안 ${local.length}건을 Firestore 기준으로 설정했습니다.`
+    );
+  }
+
+  function startRealtime() {
+    if(proposalUnsub) try{proposalUnsub();}catch(_){}
+    if(userUnsub) try{userUnsub();}catch(_){}
+
+    proposalUnsub=onSnapshot(
+      collection(getDb(), COLLECTION),
+      snapshot=>{
+        proposalRows=snapshot.docs.map(item=>{
+          const data=item.data()||{};
+          return {...data,id:String(data.id||item.id)};
+        }).filter(pid);
+
+        redraw();
+        console.log('[GNP v37] safetyProposals realtime:',proposalRows.length);
+      },
+      error=>{
+        console.error('[GNP v37] safetyProposals listener error:',error);
+      }
+    );
+
+    userUnsub=onSnapshot(
+      collection(getDb(), USER_COLLECTION),
+      snapshot=>{
+        const map=new Map();
+
+        snapshot.docs.forEach(item=>{
+          const data=item.data()||{};
+          const id=String(data.legacyId||data.id||data.name||item.id||'').trim();
+          if(!id) return;
+          const row={...data,id};
+          if(!map.has(id) || item.id===id) map.set(id,row);
+        });
+
+        userRows=[...map.values()];
+        redraw();
+        console.log('[GNP v37] users realtime:',userRows.length);
+      },
+      error=>{
+        console.error('[GNP v37] users listener error:',error);
+      }
+    );
+  }
+
+  function patchStorageLegacyKey() {
+    if(window.__gnpV37StoragePatched) return;
+
+    const storage=Storage.prototype;
+    const rawGet=storage.getItem;
+    const rawSet=storage.setItem;
+    const rawRemove=storage.removeItem;
+
+    storage.getItem=function(key) {
+      if(this===window.localStorage && key===PROPOSAL_KEY) {
+        return JSON.stringify(proposalRows);
+      }
+      if(this===window.localStorage && key===USERS_KEY) {
+        return JSON.stringify(userRows);
+      }
+      return rawGet.call(this,key);
+    };
+
+    storage.setItem=function(key,value) {
+      if(this===window.localStorage && key===PROPOSAL_KEY) {
+        let rows=[];
+        try {
+          const parsed=JSON.parse(value||'[]');
+          rows=Array.isArray(parsed)?parsed:[];
+        } catch(_){}
+
+        /*
+         * Legacy UI wrote here; route it directly to Firestore instead.
+         */
+        applyProposalList(rows).catch(error=>{
+          console.error('[GNP v37] legacy proposal route failed',error);
+        });
+
+        return;
+      }
+
+      if(this===window.localStorage && key===USERS_KEY) {
+        let rows=[];
+        try {
+          const parsed=JSON.parse(value||'[]');
+          rows=Array.isArray(parsed)?parsed:[];
+        } catch(_){}
+
+        userRows=clone(rows);
+
+        enqueue('legacy user route',async()=>{
+          for(const row of rows) {
+            const id=uid(row);
+            if(!id) continue;
+
+            await setDoc(
+              doc(getDb(),USER_COLLECTION,id),
+              {
+                ...row,
+                id,
+                legacyId:id,
+                syncSource:'GNP-v37',
+                syncUpdatedAt:serverTimestamp()
+              },
+              {merge:true}
+            );
+          }
+        }).catch(error=>{
+          console.error('[GNP v37] legacy user route failed',error);
+        });
+
+        return;
+      }
+
+      return rawSet.call(this,key,value);
+    };
+
+    storage.removeItem=function(key) {
+      if(this===window.localStorage && key===PROPOSAL_KEY) {
+        proposalRows=[];
+        enqueue('legacy proposal clear',async()=>{
+          const snap=await getDocs(collection(getDb(),COLLECTION));
+          for(const item of snap.docs) {
+            await deleteDoc(doc(getDb(),COLLECTION,item.id));
+          }
+        }).catch(error=>{
+          console.error('[GNP v37] proposal clear failed',error);
+        });
+        return;
+      }
+
+      return rawRemove.call(this,key);
+    };
+
+    window.__gnpV37StoragePatched=true;
+  }
+
+  function patchApp() {
+    const app=window.app;
+    if(!app?.ai1 || !app?.db) return false;
+
+    /*
+     * These are the ONLY app-level persistence functions for AI1.
+     */
+    app.ai1.getData=function() {
+      return clone(proposalRows);
+    };
+
+    app.ai1.saveData=function(rows) {
+      applyProposalList(rows).catch(error=>{
+        alert(
+          `안전제안 저장 실패\n\n${error?.message||error}`
+        );
+      });
+
+      return true;
+    };
+
+    app.db.getUsers=function() {
+      return clone(userRows);
+    };
+
+    app.db.saveUsers=function(rows) {
+      const next=Array.isArray(rows)?clone(rows):[];
+      userRows=next;
+
+      enqueue('users save',async()=>{
+        for(const row of next) {
+          const id=uid(row);
+          if(!id) continue;
+
+          await setDoc(
+            doc(getDb(),USER_COLLECTION,id),
+            {
+              ...row,
+              id,
+              legacyId:id,
+              syncSource:'GNP-v37',
+              syncUpdatedAt:serverTimestamp()
+            },
+            {merge:true}
+          );
+        }
+
+        redraw();
+      }).catch(error=>{
+        alert(
+          `권한 저장 실패\n\n${error?.message||error}`
+        );
+      });
+
+      return true;
+    };
+
+    /*
+     * Patch all common AI1 deletion entry points so the old implementation
+     * cannot re-save the deleted row back into localStorage.
+     */
+    ['remove','delete','deleteProposal'].forEach(name=>{
+      const existing=app.ai1[name];
+
+      if(typeof existing!=='function') return;
+      if(existing.__gnpV37Wrapped) return;
+
+      const wrapped=function(id) {
+        const value=String(id||'').trim();
+        if(!value) return false;
+
+        proposalRows=proposalRows.filter(row=>pid(row)!==value);
+        redraw();
+
+        enqueue(`delete ${name}`,()=>deleteProposal(value))
+          .catch(error=>{
+            alert(
+              `안전제안 삭제 실패\n\n${error?.message||error}`
+            );
+          });
+
+        return true;
+      };
+
+      wrapped.__gnpV37Wrapped=true;
+      app.ai1[name]=wrapped;
+    });
+
+    return true;
+  }
+
+  async function start() {
+    if(installed) return true;
+    if(!window.gnpFirebase?.db) return false;
+    if(!window.app?.ai1 || !window.app?.db) return false;
+
+    /*
+     * Read Firestore FIRST. This prevents an unrelated PC's empty local
+     * storage from creating an empty cloud dataset.
+     */
+    const cloud=await getDocs(collection(getDb(),COLLECTION));
+
+    proposalRows=cloud.docs.map(item=>{
+      const data=item.data()||{};
+      return {...data,id:String(data.id||item.id)};
+    }).filter(pid);
+
+    const usersSnap=await getDocs(collection(getDb(),USER_COLLECTION));
+
+    const map=new Map();
+    usersSnap.docs.forEach(item=>{
+      const data=item.data()||{};
+      const id=String(data.legacyId||data.id||data.name||item.id||'').trim();
+      if(!id) return;
+      const row={...data,id};
+      if(!map.has(id) || item.id===id) map.set(id,row);
+    });
+    userRows=[...map.values()];
+
+    patchStorageLegacyKey();
+
+    /*
+     * Baseline migration ONLY on the current mobile baseline device.
+     */
+    await bootstrapMobileSet();
+
+    patchApp();
+    startRealtime();
+
+    installed=true;
+    redraw();
+
+    console.log(
+      '[GNP v37] FINAL FIRESTORE AUTHORITY READY',
+      {proposals:proposalRows.length, users:userRows.length}
+    );
+
+    return true;
+  }
+
+  let attempts=0;
+
+  /*
+   * This script is after every other script in the HTML. It waits for the
+   * existing Firebase bridge and app object, then becomes the final authority.
+   */
+  const timer=setInterval(()=>{
+    start().then(ok=>{
+      if(ok || ++attempts>300) clearInterval(timer);
+    }).catch(error=>{
+      console.error('[GNP v37] start error',error);
+      if(++attempts>300) clearInterval(timer);
+    });
+  },100);
+
+})();
+</script>
+
