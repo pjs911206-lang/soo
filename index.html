@@ -2278,9 +2278,14 @@ const app = {
             app.ai1.render();
         },
         resetForm: () => {
-            ['ai1-location','ai1-description','ai1-type','ai1-risk','ai1-current','ai1-immediate','ai1-measure','ai1-effect'].forEach(id => document.getElementById(id).value='');
-            document.getElementById('ai1-files').value='';
-            document.getElementById('ai1-preview').innerHTML='';
+            ['ai1-location','ai1-description','ai1-type','ai1-risk','ai1-current','ai1-immediate','ai1-measure','ai1-effect'].forEach(id => {
+                const field = document.getElementById(id);
+                if(field) field.value='';
+            });
+            const filesEl = document.getElementById('ai1-files');
+            const previewEl = document.getElementById('ai1-preview');
+            if(filesEl) filesEl.value='';
+            if(previewEl) previewEl.innerHTML='';
             const improvementInput = document.getElementById('ai1-improvement-files');
             const improvementPreview = document.getElementById('ai1-improvement-preview');
             if(improvementInput) improvementInput.value='';
@@ -2288,12 +2293,19 @@ const app = {
             app.ai1.editedPhotoDataUrl = '';
             app.ai1.currentPhotoDataUrl = '';
             app.ai1.improvementPhotoDataUrl = '';
-            document.getElementById('ai1-ai-status').textContent='현장 정보를 입력한 뒤 AI 분석·안전제안서 작성 버튼을 눌러 주세요.';
-            document.getElementById('ai1-option-note').textContent='';
-            document.getElementById('ai1-priority-badge').classList.add('hidden');
-            document.getElementById('ai1-duplicate').textContent='AI 작성 후 기존 제안과의 유사성을 확인해 주세요.';
-            document.getElementById('ai1-dup-badge').className='text-[11px] px-2 py-1 rounded-full bg-slate-100 text-slate-500';
-            document.getElementById('ai1-dup-badge').textContent='분석 전';
+            const aiStatusEl = document.getElementById('ai1-ai-status');
+            const optionNoteEl = document.getElementById('ai1-option-note');
+            const priorityBadgeEl = document.getElementById('ai1-priority-badge');
+            const duplicateEl = document.getElementById('ai1-duplicate');
+            const dupBadgeEl = document.getElementById('ai1-dup-badge');
+            if(aiStatusEl) aiStatusEl.textContent='현장 정보를 입력한 뒤 AI 분석·안전제안서 작성 버튼을 눌러 주세요.';
+            if(optionNoteEl) optionNoteEl.textContent='';
+            if(priorityBadgeEl) priorityBadgeEl.classList.add('hidden');
+            if(duplicateEl) duplicateEl.textContent='AI 작성 후 기존 제안과의 유사성을 확인해 주세요.';
+            if(dupBadgeEl) {
+                dupBadgeEl.className='text-[11px] px-2 py-1 rounded-full bg-slate-100 text-slate-500';
+                dupBadgeEl.textContent='분석 전';
+            }
             app.ai1.images=[]; app.ai1.imageData=[]; app.ai1.regenCount=0; app.ai1.lastModel='';
             app.ai1.currentScores = null;
             const scoreBox = document.getElementById('ai1-score-box');
@@ -7408,7 +7420,17 @@ const app = {
   function safeChart(id, config, cacheKey) {
     const canvas = document.getElementById(id);
     if (!canvas || typeof Chart === 'undefined') return;
-    if (ai[cacheKey]) ai[cacheKey].destroy();
+
+    // v39: 여러 렌더 경로가 같은 canvas를 재사용해도 기존 Chart를 확실히 제거합니다.
+    try {
+      const attached = typeof Chart.getChart === 'function' ? Chart.getChart(canvas) : null;
+      if (attached) attached.destroy();
+    } catch (_) {}
+
+    try {
+      if (ai[cacheKey] && typeof ai[cacheKey].destroy === 'function') ai[cacheKey].destroy();
+    } catch (_) {}
+
     ai[cacheKey] = new Chart(canvas.getContext('2d'), config);
   }
 
