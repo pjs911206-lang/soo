@@ -410,6 +410,24 @@
 }
 </style>
 
+
+<style id="gnp-v32-migration-style">
+#gnp-v32-migration {
+  position:fixed; right:16px; bottom:16px; z-index:5000;
+  width:min(420px,calc(100vw - 32px));
+  background:#fff; border:1px solid #cbd5e1; border-radius:16px;
+  box-shadow:0 12px 32px rgba(15,23,42,.18); padding:16px;
+}
+#gnp-v32-migration.hidden{display:none!important}
+#gnp-v32-migration .muted{font-size:11px;color:#64748b}
+#gnp-v32-migration button{
+  border:0;border-radius:10px;padding:10px 12px;font-weight:800;cursor:pointer;
+}
+#gnp-v32-migration .danger{background:#fee2e2;color:#991b1b}
+#gnp-v32-migration .primary{background:#1d4ed8;color:#fff}
+#gnp-v32-migration .ghost{background:#f1f5f9;color:#334155}
+</style>
+
 </head>
 <!-- GNP v28 lightweight: unrelated module view payloads removed; safety proposal/permission/dashboard retained -->
 <body class="h-screen flex overflow-hidden">
@@ -13492,6 +13510,327 @@ const app = {
 
   const observer=new MutationObserver(()=>applyPermissionVisibility());
   observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});
+})();
+</script>
+
+
+
+<script type="module" id="gnp-firestore-single-source-v32">
+import {
+  collection, doc, setDoc, deleteDoc, getDocs, onSnapshot, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+
+(function(){
+  'use strict';
+
+  const USERS = 'users';
+  const PROPOSALS = 'safetyProposals';
+
+  let proposalCache = [];
+  let userCache = [];
+  let userUnsub = null;
+  let proposalUnsub = null;
+  let ready = false;
+  let migrationDone = false;
+
+  const safeParse = (v, fallback=[]) => {
+    try {
+      const x = JSON.parse(v);
+      return Array.isArray(x) ? x : fallback;
+    } catch { return fallback; }
+  };
+
+  const uid = u => String(u?.id || u?.legacyId || u?.name || '').trim();
+  const pid = p => String(p?.id || '').trim();
+
+  function db(){
+    const value = window.gnpFirebase?.db;
+    if(!value) throw new Error('Firestore가 초기화되지 않았습니다.');
+    return value;
+  }
+
+  /*
+   * One-time manual migration:
+   * take the current device's 46 local proposals and upload them as the
+   * authoritative Firestore set. Nothing is deleted automatically until
+   * the user explicitly presses the confirmation button.
+   */
+  async function migrateCurrentDeviceToFirestore(){
+    const local = safeParse(localStorage.getItem('gnp_ai1_proposals') || '[]');
+    if(!local.length) throw new Error('현재 기기에 저장된 안전제안이 없습니다.');
+
+    const cleaned = local.filter(x => pid(x));
+
+    for(const row of cleaned){
+      await setDoc(
+        doc(db(), PROPOSALS, pid(row)),
+        {
+          ...row,
+          id:pid(row),
+          migratedFrom:'current-device',
+          migratedAt:serverTimestamp(),
+          syncSource:'GNP-v32'
+        },
+        {merge:true}
+      );
+    }
+
+    /*
+     * Delete cloud proposals not in the selected 46-device set.
+     * This is executed only by the explicit "46건을 기준으로 확정" button.
+     */
+    const cloud = await getDocs(collection(db(), PROPOSALS));
+    const keep = new Set(cleaned.map(pid));
+
+    for(const d of cloud.docs){
+      const id = String(d.data()?.id || d.id);
+      if(!keep.has(id)){
+        await deleteDoc(doc(db(), PROPOSALS, d.id));
+      }
+    }
+
+    migrationDone = true;
+    console.log('[GNP v32] current-device proposal set made authoritative:', cleaned.length);
+    alert(`현재 기기의 ${cleaned.length}건을 Firestore 기준으로 확정했습니다.`);
+  }
+
+  /*
+   * Realtime Firestore -> in-memory application cache.
+   * IMPORTANT: after migration, Firestore is the ONLY persistent source for
+   * proposals/users. localStorage is not written by this bridge.
+   */
+  function startRealtime(){
+    const firestore = db();
+
+    if(userUnsub) try{userUnsub();}catch(_){}
+    if(proposalUnsub) try{proposalUnsub();}catch(_){}
+
+    userUnsub = onSnapshot(
+      collection(firestore, USERS),
+      snap => {
+        const byId = new Map();
+
+        snap.docs.forEach(d => {
+          const x = d.data() || {};
+          const id = String(x.legacyId || x.id || x.name || d.id).trim();
+          if(!id) return;
+          const row = {...x, id};
+
+          const old = byId.get(id);
+          if(!old || d.id === id) byId.set(id,row);
+        });
+
+        userCache = [...byId.values()];
+
+        /*
+         * Do not write to localStorage. Feed the existing UI/runtime.
+         */
+        try{
+          if(window.app?.db){
+            window.app.db.__gnpV32Users = userCache;
+          }
+          const me = window.app?.auth?.currentUser;
+          if(me){
+            const fresh = userCache.find(u => uid(u) === uid(me));
+            if(fresh){
+              window.app.auth.currentUser = {...me,...fresh};
+            }
+          }
+          window.renderPermissionV3?.();
+          window.permissionControl?.filter?.();
+          window.app?.auth?.refreshPanel?.();
+        }catch(_){}
+        refreshTopBar();
+      },
+      e => console.error('[GNP v32] users realtime error', e)
+    );
+
+    proposalUnsub = onSnapshot(
+      collection(firestore, PROPOSALS),
+      snap => {
+        proposalCache = snap.docs.map(d=>{
+          const x=d.data()||{};
+          return {...x,id:String(x.id||d.id)};
+        }).filter(x=>pid(x));
+
+        /*
+         * Feed the existing safety-proposal UI directly in memory.
+         * Never persist proposalCache to localStorage.
+         */
+        try{
+          if(window.app?.ai1){
+            window.app.ai1.__gnpV32Data = proposalCache;
+            window.app.ai1.__gnpV32Realtime = true;
+            window.app.ai1.render?.();
+          }
+        }catch(_){}
+        refreshProposalUI();
+      },
+      e => console.error('[GNP v32] proposals realtime error', e)
+    );
+  }
+
+  function refreshTopBar(){
+    const u=window.app?.auth?.currentUser;
+    if(!u) return;
+    const info=document.getElementById('user-info');
+    const role=document.getElementById('user-role');
+    const avatar=document.getElementById('user-avatar');
+
+    if(info) info.textContent=`${u.name||u.id||''} (${u.team||'미지정'})`;
+    if(role) role.textContent=String(u.role||'반원');
+    if(avatar) avatar.textContent=String(u.name||u.id||'G').charAt(0);
+  }
+
+  function refreshProposalUI(){
+    try{
+      const list = proposalCache;
+      if(document.getElementById('ai1-dash-total')){
+        document.getElementById('ai1-dash-total').textContent = String(list.length);
+      }
+      window.app?.ai1?.render?.();
+    }catch(_){}
+  }
+
+  /*
+   * Firestore-only application accessors.
+   * These are runtime overrides, not localStorage mirrors.
+   */
+  function installDataAccess(){
+    const app=window.app;
+    if(!app?.db || !app?.ai1) return false;
+
+    app.db.getUsers = () => userCache.slice();
+
+    app.db.saveUsers = rows => {
+      const next = Array.isArray(rows) ? structuredClone(rows) : [];
+      const before = new Map(userCache.map(u=>[uid(u),u]).filter(([id])=>id));
+
+      userCache = next;
+
+      next.forEach(user=>{
+        const id=uid(user);
+        if(!id) return;
+        const old=before.get(id);
+        if(JSON.stringify(old)!==JSON.stringify(user)){
+          setDoc(
+            doc(db(),USERS,id),
+            {...user,id,legacyId:id,syncSource:'GNP-v32',syncUpdatedAt:serverTimestamp()},
+            {merge:true}
+          ).catch(e=>console.error('[GNP v32] user save failed',e));
+        }
+      });
+
+      return true;
+    };
+
+    app.ai1.getData = () => proposalCache.slice();
+
+    app.ai1.saveData = rows => {
+      const next = Array.isArray(rows) ? structuredClone(rows) : [];
+      const before = new Map(proposalCache.map(p=>[pid(p),p]).filter(([id])=>id));
+      const after = new Map(next.map(p=>[pid(p),p]).filter(([id])=>id));
+
+      proposalCache = next;
+
+      after.forEach((row,id)=>{
+        if(JSON.stringify(before.get(id))!==JSON.stringify(row)){
+          setDoc(
+            doc(db(),PROPOSALS,id),
+            {...row,id,syncSource:'GNP-v32',syncUpdatedAt:serverTimestamp()},
+            {merge:true}
+          ).catch(e=>console.error('[GNP v32] proposal save failed',id,e));
+        }
+      });
+
+      before.forEach((_,id)=>{
+        if(!after.has(id)){
+          deleteDoc(doc(db(),PROPOSALS,id))
+            .catch(e=>console.error('[GNP v32] proposal delete failed',id,e));
+        }
+      });
+
+      try{app.ai1.render?.();}catch(_){}
+      return true;
+    };
+
+    return true;
+  }
+
+  function install(){
+    if(ready) return true;
+    if(!window.gnpFirebase?.db || !window.app?.db || !window.app?.ai1) return false;
+
+    ready=true;
+
+    installDataAccess();
+    startRealtime();
+    refreshTopBar();
+    installMigrationUI();
+
+    console.log('[GNP v32] Firestore single-source realtime active');
+    return true;
+  }
+
+  function installMigrationUI(){
+    if(document.getElementById('gnp-v32-migration')) return;
+
+    const box=document.createElement('div');
+    box.id='gnp-v32-migration';
+    box.className='hidden';
+    box.innerHTML=`
+      <div class="font-black text-slate-900">안전제안 데이터 기준 설정</div>
+      <div class="muted mt-1">현재 기기의 안전제안 목록을 Firestore의 최종 기준으로 확정합니다.</div>
+      <div class="text-sm font-black mt-3" id="gnp-v32-count">현재 0건</div>
+      <div class="flex gap-2 mt-3">
+        <button class="primary flex-1" id="gnp-v32-migrate">현재 목록을 Firestore 기준으로 확정</button>
+        <button class="ghost" id="gnp-v32-close">닫기</button>
+      </div>
+      <div class="muted mt-2">※ 관리자 확인 후 한 번만 실행하세요.</div>
+    `;
+    document.body.appendChild(box);
+
+    document.getElementById('gnp-v32-migrate').onclick=async()=>{
+      try{
+        const n=safeParse(localStorage.getItem('gnp_ai1_proposals')||'[]').length;
+        if(!confirm(`현재 기기의 ${n}건을 Firestore의 최종 기준으로 확정할까요?\\nFirestore에 없는 기존 문서는 삭제됩니다.`)) return;
+        await migrateCurrentDeviceToFirestore();
+        box.classList.add('hidden');
+      }catch(e){
+        console.error(e);
+        alert(`기준 데이터 반영 실패: ${e?.message||e}`);
+      }
+    };
+    document.getElementById('gnp-v32-close').onclick=()=>box.classList.add('hidden');
+
+    /*
+     * Expose manual opening to admin/dev console.
+     */
+    window.gnpV32={
+      openMigration:()=>{
+        const rows=safeParse(localStorage.getItem('gnp_ai1_proposals')||'[]');
+        document.getElementById('gnp-v32-count').textContent=`현재 기기 안전제안 ${rows.length}건`;
+        box.classList.remove('hidden');
+      },
+      migrateCurrentDeviceToFirestore
+    };
+
+    /*
+     * Admin can open with Alt+Shift+M, avoiding any change to normal UI.
+     */
+    window.addEventListener('keydown',e=>{
+      if(e.altKey && e.shiftKey && e.key.toLowerCase()==='m'){
+        window.gnpV32.openMigration();
+      }
+    });
+  }
+
+  let tries=0;
+  const timer=setInterval(()=>{
+    if(install() || ++tries>300){
+      clearInterval(timer);
+    }
+  },100);
 })();
 </script>
 
