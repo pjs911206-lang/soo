@@ -15222,7 +15222,7 @@ import {
      ============================================================ -->
 
 
-<script id="gnp-v43-realtime-dynamic-import">
+<script id="gnp-v44-realtime-dynamic-import">
 (function(){
   'use strict';
 
@@ -15247,7 +15247,7 @@ import {
 
   const setStatus = (extra) => {
     window.gnpRealtimeStatus = {
-      version: "v43",
+      version: "v44",
       active: false,
       stage: "boot",
       updatedAt: new Date().toISOString(),
@@ -15257,7 +15257,7 @@ import {
   };
 
   setStatus({stage:"script-loaded"});
-  console.log("[GNP v43] realtime script loaded");
+  console.log("[GNP v44] realtime script loaded");
 
   const idOf = x => String(x?.id || "").trim();
   const clone = list => (Array.isArray(list) ? list : []).map(x => ({...x}));
@@ -15295,7 +15295,7 @@ import {
     ai.__v42Rows = clone(rows);
 
     try { ai.render?.(); }
-    catch(error){ console.error("[GNP v43] render 오류:", error); }
+    catch(error){ console.error("[GNP v44] render 오류:", error); }
 
     requestAnimationFrame(() => {
       try { ai.render?.(); } catch(_) {}
@@ -15311,7 +15311,7 @@ import {
       {
         ...clean(row),
         id,
-        syncSource: "GNP-v43",
+        syncSource: "GNP-v44",
         syncUpdatedAt: fs.serverTimestamp()
       },
       {merge:true}
@@ -15329,7 +15329,7 @@ import {
       .catch(() => {})
       .then(task)
       .catch(error => {
-        console.error("[GNP v43]", label, error);
+        console.error("[GNP v44]", label, error);
         throw error;
       });
 
@@ -15347,9 +15347,18 @@ import {
     ai.saveData = function(nextRows){
       const next = clone(nextRows).filter(x => idOf(x));
       const beforeMap = new Map(rows.map(x => [idOf(x), x]));
-      const nextMap = new Map(next.map(x => [idOf(x), x]));
 
-      rows = next;
+      // v44 핵심 안전장치:
+      // 다른 PC의 오래된/부분 목록을 "전체 목록"으로 간주하지 않는다.
+      // 전달된 행만 기존 Firestore 캐시에 병합하며,
+      // nextRows에 없다는 이유만으로 기존 Firestore 문서를 절대 삭제하지 않는다.
+      const mergedMap = new Map(rows.map(x => [idOf(x), x]));
+      for(const row of next){
+        const id = idOf(row);
+        mergedMap.set(id, {...(mergedMap.get(id) || {}), ...row, id});
+      }
+
+      rows = Array.from(mergedMap.values());
       sortRows();
       render();
 
@@ -15363,11 +15372,8 @@ import {
           }
         }
 
-        for(const id of beforeMap.keys()){
-          if(!nextMap.has(id)){
-            await deleteOne(id);
-          }
-        }
+        // 중요: 목록 차이(diff)를 이용한 deleteDoc는 금지.
+        // 삭제는 사용자가 실제 삭제 버튼을 눌렀을 때의 명시적 삭제 경로에서만 수행한다.
       }).catch(error => {
         alert("안전제안 Firestore 동기화 실패\n\n" + (error?.message || error));
       });
@@ -15403,7 +15409,7 @@ import {
         });
 
         console.log(
-          "[GNP v43] REALTIME 수신:",
+          "[GNP v44] REALTIME 수신:",
           rows.length + "건",
           snapshot.metadata.fromCache ? "(cache)" : "(server)"
         );
@@ -15414,7 +15420,7 @@ import {
           stage:"snapshot-error",
           error:String(error?.message || error)
         });
-        console.error("[GNP v43] onSnapshot 오류:", error);
+        console.error("[GNP v44] onSnapshot 오류:", error);
       }
     );
   }
@@ -15460,7 +15466,7 @@ import {
         lastUpdate:new Date().toISOString()
       });
 
-      console.log("[GNP v43] 초기 Firestore 조회 완료:", rows.length + "건");
+      console.log("[GNP v44] 초기 Firestore 조회 완료:", rows.length + "건");
       return true;
 
     } catch(error) {
@@ -15470,7 +15476,7 @@ import {
         stage:"start-error",
         error:String(error?.message || error)
       });
-      console.error("[GNP v43] 시작 실패:", error);
+      console.error("[GNP v44] 시작 실패:", error);
       return false;
     }
   }
