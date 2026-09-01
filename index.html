@@ -13592,7 +13592,7 @@ const app = {
      - onSnapshot() is the only shared refresh path
      - No localStorage persistence for gnp_ai1_proposals
      ============================================================ -->
-</body>
+
 
 <!-- FINAL DATA SYNC ONLY: preserve latest UI, synchronize proposals through Firebase -->
 
@@ -14680,7 +14680,7 @@ import {
 })();
 </script>
 
-</html>
+
 
 
 <!-- ============================================================
@@ -15220,6 +15220,17 @@ import {
        3) 상태/결재/평가/수정/삭제도 saveData()를 통해 Firestore 반영
        4) 기존 UI/사진/권한 코드는 변경하지 않음
      ============================================================ -->
+
+<script id="gnp-v41-realtime-bootstrap-marker">
+window.gnpRealtimeStatus = {
+  version: 'v41',
+  active: false,
+  stage: 'bootstrap-loaded',
+  loadedAt: new Date().toISOString()
+};
+console.log('[GNP v41] realtime bootstrap script loaded');
+</script>
+
 <script type="module" id="gnp-v40-final-realtime-proposals">
 import {
   collection,
@@ -15391,7 +15402,7 @@ import {
         };
 
         console.log(
-          '[GNP v40] REALTIME 수신 완료:',
+          '[GNP v41] REALTIME 수신 완료:',
           rows.length + '건',
           snapshot.metadata.fromCache ? '(cache)' : '(server)'
         );
@@ -15401,7 +15412,7 @@ import {
           active:false,
           error:String(error?.message || error)
         };
-        console.error('[GNP v40] REALTIME 수신 실패:', error);
+        console.error('[GNP v41] REALTIME 수신 실패:', error);
       }
     );
   }
@@ -15433,10 +15444,10 @@ import {
       active:true,
       count:rows.length,
       lastUpdate:new Date().toISOString(),
-      version:'v40'
+      version:'v41'
     };
 
-    console.log('[GNP v40] PC↔모바일 Firestore 실시간 조회 ACTIVE:', rows.length + '건');
+    console.log('[GNP v41] PC↔모바일 Firestore 실시간 조회 ACTIVE:', rows.length + '건');
     return true;
   }
 
@@ -15445,7 +15456,7 @@ import {
     install().then(ok => {
       if(ok || ++tries > 300) clearInterval(timer);
     }).catch(error => {
-      console.error('[GNP v40] 설치 오류:', error);
+      console.error('[GNP v41] 설치 오류:', error);
       if(++tries > 300) clearInterval(timer);
     });
   }, 100);
@@ -15455,4 +15466,5 @@ import {
   });
 })();
 </script>
-
+</body>
+</html>
