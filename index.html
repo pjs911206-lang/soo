@@ -375,6 +375,41 @@
 })();
 </script>
 
+
+<style id="gnp-v31-permission-only-page">
+/* 권한 설정 UI는 권한 페이지에서만 보이도록 제한 */
+#view-AI1 .permission-inline,
+#view-AI1 .permission-panel,
+#view-AI1 [data-permission-view],
+#view-AI1 .permission-table-wrap,
+#view-AI1 .perm-v2-table-wrap,
+#view-AI1 #permission-search,
+#view-AI1 #permission-list,
+#view-AI1 #permissionList,
+#view-AI1 #pv-search,
+#view-AI1 #pv-list,
+#view-AI1 .permission-card,
+#view-AI1 .permission-section {
+  display:none !important;
+}
+
+/* 동적으로 삽입되는 권한 view가 active일 때만 표시 */
+#main-body > .flex-1 > #view-PERM.active,
+#main-body > .flex-1 > #view-PERM-V3.active,
+#main-body > .flex-1 > #view-ADMIN.active {
+  display:block !important;
+  visibility:visible !important;
+  opacity:1 !important;
+}
+
+/* AI1이 활성화되어 있을 때 별도의 권한 view는 절대 노출하지 않음 */
+#view-AI1.active ~ #view-PERM,
+#view-AI1.active ~ #view-PERM-V3,
+#view-AI1.active ~ #view-ADMIN {
+  display:none !important;
+}
+</style>
+
 </head>
 <!-- GNP v28 lightweight: unrelated module view payloads removed; safety proposal/permission/dashboard retained -->
 <body class="h-screen flex overflow-hidden">
@@ -13397,6 +13432,68 @@ const app = {
 })();
 </script>
 
+
+
+<script id="gnp-v31-permission-only-page-script">
+(function(){
+  'use strict';
+
+  function applyPermissionVisibility(){
+    const ai=document.getElementById('view-AI1');
+    const perm=document.getElementById('view-PERM');
+    const perm3=document.getElementById('view-PERM-V3');
+    const admin=document.getElementById('view-ADMIN');
+
+    const permissionActive =
+      !!document.querySelector('#main-body > .flex-1 > .view.active#view-PERM, #main-body > .flex-1 > .view.active#view-PERM-V3, #main-body > .flex-1 > .view.active#view-ADMIN');
+
+    if(ai){
+      ai.querySelectorAll(
+        '.permission-inline, .permission-panel, [data-permission-view], '+
+        '.permission-table-wrap, .perm-v2-table-wrap, '+
+        '#permission-search, #permission-list, #permissionList, '+
+        '#pv-search, #pv-list, .permission-card, .permission-section'
+      ).forEach(el=>{
+        el.style.display='none';
+      });
+    }
+
+    [perm,perm3,admin].forEach(v=>{
+      if(!v) return;
+      if(permissionActive && v.classList.contains('active')){
+        v.style.display='block';
+      }else{
+        v.style.display='none';
+      }
+    });
+  }
+
+  function install(){
+    if(!window.app?.router || window.__gnpV31PermissionOnly) return !!window.__gnpV31PermissionOnly;
+    window.__gnpV31PermissionOnly=true;
+
+    const originalGo=window.app.router.go?.bind(window.app.router);
+    if(originalGo){
+      window.app.router.go=function(){
+        const result=originalGo.apply(this,arguments);
+        requestAnimationFrame(applyPermissionVisibility);
+        return result;
+      };
+    }
+
+    requestAnimationFrame(applyPermissionVisibility);
+    return true;
+  }
+
+  let tries=0;
+  const timer=setInterval(()=>{
+    if(install() || ++tries>300) clearInterval(timer);
+  },100);
+
+  const observer=new MutationObserver(()=>applyPermissionVisibility());
+  observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});
+})();
+</script>
 
 </body>
 
