@@ -15222,9 +15222,19 @@ import {
      ============================================================ -->
 
 
-<script id="gnp-v42-realtime-dynamic-import">
+<script id="gnp-v43-realtime-dynamic-import">
 (function(){
   'use strict';
+
+  // v43: 기존 앱은 `const app = ...` 전역 lexical binding이라
+  // `typeof app === "object"`여도 window.app에는 붙지 않습니다.
+  // 따라서 window.app만 보지 않고 실제 전역 app을 우선 사용합니다.
+  const getApp = () => {
+    try {
+      if (typeof app !== 'undefined' && app) return app;
+    } catch (_) {}
+    return window.app || null;
+  };
 
   const FIRESTORE_URL = "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
   const COLLECTION = "safetyProposals";
@@ -15237,7 +15247,7 @@ import {
 
   const setStatus = (extra) => {
     window.gnpRealtimeStatus = {
-      version: "v42",
+      version: "v43",
       active: false,
       stage: "boot",
       updatedAt: new Date().toISOString(),
@@ -15247,7 +15257,7 @@ import {
   };
 
   setStatus({stage:"script-loaded"});
-  console.log("[GNP v42] realtime script loaded");
+  console.log("[GNP v43] realtime script loaded");
 
   const idOf = x => String(x?.id || "").trim();
   const clone = list => (Array.isArray(list) ? list : []).map(x => ({...x}));
@@ -15279,13 +15289,13 @@ import {
   }
 
   function render(){
-    const ai = window.app?.ai1;
+    const ai = getApp()?.ai1;
     if(!ai) return;
 
     ai.__v42Rows = clone(rows);
 
     try { ai.render?.(); }
-    catch(error){ console.error("[GNP v42] render 오류:", error); }
+    catch(error){ console.error("[GNP v43] render 오류:", error); }
 
     requestAnimationFrame(() => {
       try { ai.render?.(); } catch(_) {}
@@ -15301,7 +15311,7 @@ import {
       {
         ...clean(row),
         id,
-        syncSource: "GNP-v42",
+        syncSource: "GNP-v43",
         syncUpdatedAt: fs.serverTimestamp()
       },
       {merge:true}
@@ -15319,7 +15329,7 @@ import {
       .catch(() => {})
       .then(task)
       .catch(error => {
-        console.error("[GNP v42]", label, error);
+        console.error("[GNP v43]", label, error);
         throw error;
       });
 
@@ -15327,7 +15337,7 @@ import {
   }
 
   function installAppBridge(){
-    const ai = window.app?.ai1;
+    const ai = getApp()?.ai1;
     if(!ai) return false;
 
     ai.getData = function(){
@@ -15393,7 +15403,7 @@ import {
         });
 
         console.log(
-          "[GNP v42] REALTIME 수신:",
+          "[GNP v43] REALTIME 수신:",
           rows.length + "건",
           snapshot.metadata.fromCache ? "(cache)" : "(server)"
         );
@@ -15404,7 +15414,7 @@ import {
           stage:"snapshot-error",
           error:String(error?.message || error)
         });
-        console.error("[GNP v42] onSnapshot 오류:", error);
+        console.error("[GNP v43] onSnapshot 오류:", error);
       }
     );
   }
@@ -15417,7 +15427,7 @@ import {
       return false;
     }
 
-    if(!window.app?.ai1){
+    if(!getApp()?.ai1){
       setStatus({stage:"waiting-app"});
       return false;
     }
@@ -15450,7 +15460,7 @@ import {
         lastUpdate:new Date().toISOString()
       });
 
-      console.log("[GNP v42] 초기 Firestore 조회 완료:", rows.length + "건");
+      console.log("[GNP v43] 초기 Firestore 조회 완료:", rows.length + "건");
       return true;
 
     } catch(error) {
@@ -15460,7 +15470,7 @@ import {
         stage:"start-error",
         error:String(error?.message || error)
       });
-      console.error("[GNP v42] 시작 실패:", error);
+      console.error("[GNP v43] 시작 실패:", error);
       return false;
     }
   }
