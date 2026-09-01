@@ -15482,5 +15482,438 @@ import {
 })();
 </script>
 
+
+<script id="gnp-v46-users-approval-realtime">
+(function(){
+  'use strict';
+
+  const FIRESTORE_URL = "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+  const USER_COLLECTION = "users";
+  const PROPOSAL_COLLECTION = "safetyProposals";
+
+  const getApp = () => {
+    try {
+      if (typeof app !== "undefined" && app) return app;
+    } catch (_) {}
+    return window.app || null;
+  };
+
+  let fs = null;
+  let users = [];
+  let userUnsub = null;
+  let started = false;
+  let writeChain = Promise.resolve();
+
+  const clone = value => {
+    try { return JSON.parse(JSON.stringify(value)); }
+    catch (_) { return value; }
+  };
+
+  const uid = u => String(u?.id || u?.legacyId || u?.name || "").trim();
+  const pid = r => String(r?.id || "").trim();
+
+  function db(){
+    const value = window.gnpFirebase?.db;
+    if(!value) throw new Error("Firestore DB가 준비되지 않았습니다.");
+    return value;
+  }
+
+  function setStatus(extra){
+    window.gnpUserApprovalRealtimeStatus = {
+      version: "v46",
+      active: false,
+      stage: "boot",
+      updatedAt: new Date().toISOString(),
+      ...(window.gnpUserApprovalRealtimeStatus || {}),
+      ...(extra || {})
+    };
+  }
+
+  function normalizeRole(role, id){
+    const value = String(role || "").trim();
+    if(String(id || "") === "admin") return "HSE";
+    const allowed = new Set([
+      "반원","반장","조장","팀장","파트장","HSE",
+      "사원","대리","과장","차장","부장","임원",
+      "MASTER","ADMIN"
+    ]);
+    return allowed.has(value) ? value : "반원";
+  }
+
+  function normalizeUser(row){
+    const id = uid(row);
+    return {
+      ...(row || {}),
+      id,
+      legacyId: String(row?.legacyId || id),
+      name: String(row?.name || id),
+      team: String(row?.team || "미지정"),
+      role: normalizeRole(row?.role, id),
+      modules: Array.isArray(row?.modules) ? row.modules : []
+    };
+  }
+
+  function clean(row){
+    const out = {...(row || {})};
+    delete out.syncUpdatedAt;
+    Object.keys(out).forEach(k => {
+      if(out[k] === undefined) delete out[k];
+    });
+    return out;
+  }
+
+  function queue(task){
+    writeChain = writeChain.catch(()=>{}).then(task);
+    return writeChain;
+  }
+
+  function refreshUserUI(){
+    const a = getApp();
+    if(!a) return;
+
+    try {
+      const me = a.auth?.currentUser;
+      if(me){
+        const fresh = users.find(u => uid(u) === uid(me));
+        if(fresh){
+          a.auth.currentUser = {...me, ...clone(fresh)};
+
+          const info = document.getElementById("user-info");
+          const role = document.getElementById("user-role");
+          const avatar = document.getElementById("user-avatar");
+
+          if(info) info.textContent = `${fresh.name || fresh.id} (${fresh.team || "미지정"})`;
+          if(role) role.textContent = String(fresh.role || "반원");
+          if(avatar) avatar.textContent = String(fresh.name || fresh.id || "G").charAt(0);
+        }
+      }
+    } catch(e){
+      console.warn("[GNP v46] currentUser refresh:", e);
+    }
+
+    try { window.renderPermissionV3?.(); } catch(_){}
+    try { a.ui?.renderUserAdmin?.(); } catch(_){}
+    try { a.ai1?.render?.(); } catch(_){}
+  }
+
+  async function writeUser(row){
+    const normalized = normalizeUser(row);
+    const id = uid(normalized);
+    if(!id) return;
+
+    await fs.setDoc(
+      fs.doc(db(), USER_COLLECTION, id),
+      {
+        ...clean(normalized),
+        id,
+        legacyId:id,
+        syncSource:"GNP-v46-users",
+        syncUpdatedAt:fs.serverTimestamp()
+      },
+      {merge:true}
+    );
+  }
+
+  function installUserBridge(){
+    const a = getApp();
+    if(!a?.db || !a?.auth) return false;
+
+    a.db.getUsers = function(){
+      return clone(users);
+    };
+
+    a.db.saveUsers = function(nextRows){
+      const next = (Array.isArray(nextRows) ? clone(nextRows) : [])
+        .map(normalizeUser)
+        .filter(u => uid(u));
+
+      const before = new Map(users.map(u => [uid(u), u]));
+      const merged = new Map(users.map(u => [uid(u), u]));
+
+      // 부분/오래된 사용자 목록으로 Firestore 전체를 대체하지 않고 병합만 수행.
+      next.forEach(row => {
+        const id = uid(row);
+        merged.set(id, {...(merged.get(id) || {}), ...row, id, legacyId:id});
+      });
+
+      users = [...merged.values()];
+      refreshUserUI();
+
+      queue(async () => {
+        for(const row of next){
+          const id = uid(row);
+          const old = before.get(id);
+          if(JSON.stringify(clean(old || {})) !== JSON.stringify(clean(row))){
+            await writeUser(row);
+          }
+        }
+      }).catch(error => {
+        console.error("[GNP v46] 권한 저장 실패:", error);
+        alert("권한 저장 실패\n\n" + (error?.message || error));
+      });
+
+      return true;
+    };
+
+    // 기존 normalizeUsers가 반장/팀장/HSE를 USER/반원으로 되돌리지 못하게 최종 고정.
+    a.auth.normalizeUsers = function(items){
+      return (Array.isArray(items) ? items : []).map(normalizeUser);
+    };
+
+    return true;
+  }
+
+  function installFirestoreBackedLogin(){
+    const a = getApp();
+    if(!a?.auth || !a?.ui || a.auth.login?.__gnpV46Users) return false;
+
+    const fallback = typeof a.auth.login === "function"
+      ? a.auth.login.bind(a.auth)
+      : null;
+
+    const login = function(){
+      const id = String(document.getElementById("login-id")?.value || "").trim();
+      const pw = String(document.getElementById("login-pw")?.value || "");
+
+      if(!id || !pw){
+        alert("성명과 비밀번호를 입력해 주세요.");
+        return;
+      }
+
+      // Firestore users가 준비된 경우 항상 공유 프로필을 먼저 사용.
+      const found = users.find(u => uid(u) === id && String(u?.pw || "") === pw);
+
+      if(found){
+        a.auth.currentUser = clone(found);
+        a.ui.initSystem();
+        refreshUserUI();
+        return;
+      }
+
+      // 기존 Firebase Auth/레거시 로그인을 백업으로 유지.
+      if(fallback) return fallback();
+      alert("인증 정보가 올바르지 않습니다.");
+    };
+
+    login.__gnpV46Users = true;
+    a.auth.login = login;
+    return true;
+  }
+
+  async function persistProposalNow(row){
+    const id = pid(row);
+    if(!id) return;
+
+    await fs.setDoc(
+      fs.doc(db(), PROPOSAL_COLLECTION, id),
+      {
+        ...clean(clone(row)),
+        id,
+        syncSource:"GNP-v46-approval",
+        syncUpdatedAt:fs.serverTimestamp()
+      },
+      {merge:true}
+    );
+
+    console.log("[GNP v46] 결재 Firestore 직접 저장:", id);
+  }
+
+  function installApprovalBridge(){
+    const a = getApp();
+    const roleApi = window.safetyRole;
+    if(!a?.ai1 || !roleApi || typeof roleApi.approve !== "function") return false;
+    if(roleApi.approve.__gnpV46Approval) return true;
+
+    const original = roleApi.approve.bind(roleApi);
+
+    const wrapped = async function(id){
+      const beforeItem = a.ai1.getData?.().find(x => pid(x) === String(id));
+      const before = JSON.stringify(beforeItem?.approvals || {});
+
+      const result = original.apply(this, arguments);
+
+      // 기존 결재 함수는 동기식이므로 실행 직후 변경된 approvals를 다시 읽는다.
+      await Promise.resolve(result);
+
+      const afterItem = a.ai1.getData?.().find(x => pid(x) === String(id));
+      const after = JSON.stringify(afterItem?.approvals || {});
+
+      if(afterItem && before !== after){
+        try {
+          // 반장/팀장/HSE/파트장/최종 결재 모두 같은 한 문서에 직접 저장.
+          await persistProposalNow(afterItem);
+
+          // 기존 v45 saveData에도 한 번 더 전달해 UI/캐시를 동일 상태로 유지.
+          try {
+            const list = a.ai1.getData();
+            const index = list.findIndex(x => pid(x) === String(id));
+            if(index >= 0) list[index] = clone(afterItem);
+            a.ai1.saveData?.(list);
+          } catch(_){}
+
+          setStatus({
+            active:true,
+            stage:"approval-saved",
+            lastApprovalId:String(id),
+            lastApprovalAt:new Date().toISOString()
+          });
+        } catch(error){
+          console.error("[GNP v46] 결재 직접 저장 실패:", error);
+          setStatus({
+            active:false,
+            stage:"approval-save-error",
+            error:String(error?.message || error)
+          });
+          alert("결재 Firestore 저장 실패\n\n" + (error?.message || error));
+        }
+      }
+
+      return result;
+    };
+
+    wrapped.__gnpV46Approval = true;
+    roleApi.approve = wrapped;
+    return true;
+  }
+
+  function startUsersSnapshot(){
+    if(userUnsub){
+      try { userUnsub(); } catch(_){}
+    }
+
+    userUnsub = fs.onSnapshot(
+      fs.collection(db(), USER_COLLECTION),
+      snapshot => {
+        const map = new Map();
+
+        snapshot.docs.forEach(d => {
+          const data = d.data() || {};
+          const row = normalizeUser({
+            ...data,
+            id:String(data.legacyId || data.id || data.name || d.id)
+          });
+          const id = uid(row);
+          if(!id) return;
+
+          // users/{id} 문서를 우선 사용하여 과거 중복 프로필의 역할 덮어쓰기를 방지.
+          const old = map.get(id);
+          if(!old || d.id === id) map.set(id, row);
+        });
+
+        users = [...map.values()];
+
+        installUserBridge();
+        installFirestoreBackedLogin();
+        installApprovalBridge();
+        refreshUserUI();
+
+        setStatus({
+          active:true,
+          stage:"realtime-active",
+          userCount:users.length,
+          source:snapshot.metadata.fromCache ? "cache" : "server",
+          lastUpdate:new Date().toISOString()
+        });
+
+        console.log("[GNP v46] users REALTIME:", users.length, snapshot.metadata.fromCache ? "(cache)" : "(server)");
+      },
+      error => {
+        console.error("[GNP v46] users realtime error:", error);
+        setStatus({
+          active:false,
+          stage:"users-snapshot-error",
+          error:String(error?.message || error)
+        });
+      }
+    );
+  }
+
+  async function start(){
+    if(started) return true;
+
+    const a = getApp();
+    if(!window.gnpFirebase?.db){
+      setStatus({stage:"waiting-firebase"});
+      return false;
+    }
+    if(!a?.db || !a?.auth || !a?.ai1){
+      setStatus({stage:"waiting-app"});
+      return false;
+    }
+
+    started = true;
+    setStatus({stage:"import-start"});
+
+    try {
+      fs = await import(FIRESTORE_URL);
+
+      const snap = await fs.getDocs(fs.collection(db(), USER_COLLECTION));
+      const map = new Map();
+
+      snap.docs.forEach(d => {
+        const data = d.data() || {};
+        const row = normalizeUser({
+          ...data,
+          id:String(data.legacyId || data.id || data.name || d.id)
+        });
+        const id = uid(row);
+        if(!id) return;
+
+        const old = map.get(id);
+        if(!old || d.id === id) map.set(id, row);
+      });
+
+      users = [...map.values()];
+
+      installUserBridge();
+      installFirestoreBackedLogin();
+      installApprovalBridge();
+      startUsersSnapshot();
+      refreshUserUI();
+
+      setStatus({
+        active:true,
+        stage:"initial-read-ok",
+        userCount:users.length,
+        lastUpdate:new Date().toISOString()
+      });
+
+      console.log("[GNP v46] 권한 + 결재 실시간 브리지 ACTIVE:", users.length);
+      return true;
+
+    } catch(error){
+      started = false;
+      console.error("[GNP v46] 시작 실패:", error);
+      setStatus({
+        active:false,
+        stage:"start-error",
+        error:String(error?.message || error)
+      });
+      return false;
+    }
+  }
+
+  setStatus({stage:"script-loaded"});
+
+  let tries = 0;
+  const timer = setInterval(async () => {
+    const ok = await start();
+    if(ok || ++tries > 300) clearInterval(timer);
+  }, 100);
+
+  // 결재 API는 일부 기존 패치가 늦게 다시 덮어쓸 수 있으므로 잠시 재확인.
+  let approvalTries = 0;
+  const approvalTimer = setInterval(() => {
+    if(fs){
+      installApprovalBridge();
+      installUserBridge();
+      installFirestoreBackedLogin();
+    }
+    if(++approvalTries > 100) clearInterval(approvalTimer);
+  }, 100);
+
+})();
+</script>
+
 </body>
 </html>
