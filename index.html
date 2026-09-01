@@ -8780,6 +8780,16 @@ const app = {
         this.currentPhotoDataUrl = this.editedBeforePhoto;
         this.editedPhotoDataUrl = this.editedBeforePhoto;
         this.improvementPhotoDataUrl = this.editedAfterPhoto;
+
+        // v38 핵심: 실제 안전제안 저장 버튼의 최종 저장 지점에서
+        // Firestore setDoc()을 직접 await 합니다.
+        // 성공하기 전에는 "저장되었습니다" 알림이 나오지 않습니다.
+        const cloudWriter = window.gnpFirebase?.writeSafetyProposal;
+        if (typeof cloudWriter !== 'function') {
+          throw new Error('Firebase 안전제안 직접 저장 함수가 준비되지 않았습니다.');
+        }
+        await cloudWriter(saved);
+        console.log('[GNP v38] Firestore 직접 저장 완료:', saved.id);
       }
 
       try { this.render?.(); } catch (renderError) { console.warn('저장 후 목록 갱신 오류:', renderError); }
@@ -8795,8 +8805,8 @@ const app = {
       console.error('안전제안 저장 오류:', error);
       const quota = error?.name === 'QuotaExceededError' || /quota|storage/i.test(String(error?.message || ''));
       alert(quota
-        ? '사진 데이터가 많아 브라우저 저장공간이 부족합니다. 기존 제안의 사진을 일부 삭제한 뒤 다시 시도해 주세요.'
-        : '안전제안 저장 중 오류가 발생했습니다. 입력 내용을 확인한 뒤 다시 시도해 주세요.');
+        ? '사진 데이터가 많아 저장 가능한 용량을 초과했습니다. 사진을 줄인 뒤 다시 시도해 주세요.'
+        : `안전제안 Firestore 저장 실패\n\n${error?.message || error}`);
       return false;
     } finally {
       if (button) {
@@ -12830,7 +12840,35 @@ const app = {
         migrateUsers,
         check: checkFirebase,
         internalEmail,
-        deleteMemberAccount: deleteFirebaseMemberAccount
+        deleteMemberAccount: deleteFirebaseMemberAccount,
+
+        // v38: 안전제안 실제 등록/수정 함수가 Firestore를 직접 호출합니다.
+        // 브라우저 콘솔에서 성공한 TEST-DIRECT-001과 동일한 setDoc 경로입니다.
+        writeSafetyProposal: async (row) => {
+          if (!row || !row.id) throw new Error("안전제안 ID가 없습니다.");
+          const id = String(row.id);
+          const payload = { ...row };
+          Object.keys(payload).forEach(key => {
+            if (payload[key] === undefined) delete payload[key];
+          });
+          await setDoc(
+            doc(fbDb, "safetyProposals", id),
+            {
+              ...payload,
+              id,
+              syncSource: "GNP-v38-direct-save",
+              syncUpdatedAt: serverTimestamp()
+            },
+            { merge: true }
+          );
+          return true;
+        },
+        deleteSafetyProposal: async (id) => {
+          if (!id) return false;
+          const { deleteDoc } = await import("https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js");
+          await deleteDoc(doc(fbDb, "safetyProposals", String(id)));
+          return true;
+        }
       };
       /* Firebase 관리 패널은 admin 로그인 후에만 필요하므로 초기 로딩에서는 생성하지 않습니다. */
       if (isLegacyAdmin()) ensurePanel();
@@ -15109,6 +15147,45 @@ import {
     });
   },100);
 
+})();
+</script>
+
+
+<script id="gnp-v38-direct-delete-bridge">
+(function(){
+  'use strict';
+  let tries = 0;
+  const timer = setInterval(() => {
+    const ai = window.app?.ai1;
+    const cloudDelete = window.gnpFirebase?.deleteSafetyProposal;
+    if (!ai || typeof cloudDelete !== 'function') {
+      if (++tries > 300) clearInterval(timer);
+      return;
+    }
+    clearInterval(timer);
+
+    const originalRemove = typeof ai.remove === 'function' ? ai.remove.bind(ai) : null;
+    if (!originalRemove || ai.remove.__gnpV38DirectDelete) return;
+
+    const wrapped = async function(id) {
+      const before = (typeof this.getData === 'function' ? this.getData() : [])
+        .find(x => String(x?.id) === String(id));
+
+      const result = originalRemove(id);
+
+      // 기존 삭제가 실제로 목록에서 제거된 경우에만 Firestore 문서도 삭제.
+      const afterExists = (typeof this.getData === 'function' ? this.getData() : [])
+        .some(x => String(x?.id) === String(id));
+
+      if (before && !afterExists) {
+        await window.gnpFirebase.deleteSafetyProposal(id);
+        console.log('[GNP v38] Firestore 직접 삭제 완료:', id);
+      }
+      return result;
+    };
+    wrapped.__gnpV38DirectDelete = true;
+    ai.remove = wrapped;
+  }, 100);
 })();
 </script>
 
