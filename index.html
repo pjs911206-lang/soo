@@ -16078,5 +16078,159 @@ import {
 })();
 </script>
 
+
+<script id="gnp-v48-delete-final-authority">
+(function(){
+  'use strict';
+
+  const FS_URL = "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+  const COLLECTION = "safetyProposals";
+  let fs = null;
+  let deleting = false;
+
+  const getApp = () => {
+    try { if(typeof app !== 'undefined' && app) return app; } catch(_){}
+    return window.app || null;
+  };
+
+  const idOf = x => String(x?.id || '').trim();
+
+  function roleOf(u){
+    u = u || {};
+    if(
+      String(u.id || '') === 'admin' ||
+      u.role === 'MASTER' ||
+      u.role === 'ADMIN' ||
+      ['박종수','신제우'].includes(String(u.id || u.name || ''))
+    ) return 'HSE';
+    return String(u.role || '반원');
+  }
+
+  function isOwn(item, me){
+    return String(item?.authorId || '') === String(me?.id || '') ||
+      String(item?.author || '') === String(me?.name || me?.id || '');
+  }
+
+  function canDelete(item, me){
+    const role = roleOf(me);
+    if(role === 'HSE') return true;
+    if(isOwn(item, me)) return true;
+    if(['반장','조장','팀장','파트장'].includes(role)){
+      return String(item?.team || '') === String(me?.team || '');
+    }
+    return false;
+  }
+
+  async function removeOne(id){
+    const a = getApp();
+    const value = String(id || '').trim();
+
+    if(!a?.ai1) return alert('안전제안 모듈을 찾을 수 없습니다.');
+    if(!value) return alert('삭제할 안전제안 ID가 없습니다.');
+    if(!window.gnpFirebase?.db) return alert('Firestore 연결이 준비되지 않았습니다.');
+
+    const item = (a.ai1.getData?.() || []).find(x => idOf(x) === value);
+    if(!item) return alert('삭제할 안전제안을 찾을 수 없습니다.');
+
+    const me = a.auth?.currentUser || {};
+    if(!canDelete(item, me)) return alert('삭제 권한이 없습니다.');
+
+    if(!confirm('이 안전제안을 삭제하시겠습니까?')) return false;
+    if(deleting) return false;
+    deleting = true;
+
+    try{
+      if(!fs) fs = await import(FS_URL);
+
+      // 해당 ID 문서가 실제 존재하는지 먼저 확인
+      const ref = fs.doc(window.gnpFirebase.db, COLLECTION, value);
+      const before = await fs.getDoc(ref);
+
+      if(!before.exists()){
+        throw new Error('Firestore에서 해당 안전제안 문서를 찾을 수 없습니다. ID: ' + value);
+      }
+
+      // 목록 saveData를 거치지 않고 선택한 문서 1건만 직접 삭제
+      await fs.deleteDoc(ref);
+
+      // 삭제 성공 여부 재확인
+      const after = await fs.getDoc(ref);
+      if(after.exists()){
+        throw new Error('Firestore 삭제 요청 후에도 문서가 남아 있습니다.');
+      }
+
+      window.gnpDeleteStatus = {
+        version:'v48-final',
+        active:true,
+        success:true,
+        id:value,
+        deletedBy:me.name || me.id || '',
+        role:roleOf(me),
+        team:me.team || '',
+        deletedAt:new Date().toISOString()
+      };
+
+      console.log('[GNP v48 FINAL] Firestore 단건 삭제 확인 완료:', value);
+
+      // 화면 제거는 기존 v45 onSnapshot이 담당한다.
+      return true;
+    }catch(error){
+      window.gnpDeleteStatus = {
+        version:'v48-final',
+        active:false,
+        success:false,
+        id:value,
+        error:String(error?.message || error),
+        failedAt:new Date().toISOString()
+      };
+      console.error('[GNP v48 FINAL] 삭제 실패:', error);
+      alert('안전제안 삭제 실패\n\n' + (error?.message || error));
+      return false;
+    }finally{
+      deleting = false;
+    }
+  }
+
+  function install(){
+    const a = getApp();
+    if(!a?.ai1 || !window.safetyRole) return false;
+
+    // 기존 remove 래퍼 체인을 완전히 우회한다.
+    a.ai1.remove = removeOne;
+    a.ai1.delete = removeOne;
+    a.ai1.deleteProposal = removeOne;
+    window.safetyRole.remove = removeOne;
+
+    window.gnpDeleteStatus = {
+      version:'v48-final',
+      active:true,
+      success:null,
+      stage:'installed',
+      installedAt:new Date().toISOString()
+    };
+
+    return true;
+  }
+
+  // 늦게 실행되는 기존 패치가 remove를 다시 덮어쓰는 경우까지 방지.
+  let count = 0;
+  const timer = setInterval(() => {
+    if(install()) {
+      if(++count >= 100) clearInterval(timer);
+    }
+  },100);
+
+  // 실제 화면의 삭제 버튼 클릭 시에도 최종 함수를 다시 고정한 뒤 실행되게 한다.
+  document.addEventListener('pointerdown', e => {
+    const btn = e.target?.closest?.('button');
+    if(!btn) return;
+    const text = String(btn.textContent || '').trim();
+    if(text.includes('삭제')) install();
+  }, true);
+
+  console.log('[GNP v48 FINAL] 안전제안 Firestore 단건삭제 브리지 로드');
+})();
+</script>
+
 </body>
 </html>
