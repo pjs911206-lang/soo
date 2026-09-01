@@ -15211,3 +15211,248 @@ import {
 })();
 </script>
 
+
+<!-- ============================================================
+     GNP v40 - SAFETY PROPOSAL REALTIME RECEIVE FINAL AUTHORITY
+     목적:
+       1) Firestore safetyProposals 를 UI의 유일한 조회 원본으로 사용
+       2) PC/모바일 어느 쪽에서 저장해도 onSnapshot 즉시 수신
+       3) 상태/결재/평가/수정/삭제도 saveData()를 통해 Firestore 반영
+       4) 기존 UI/사진/권한 코드는 변경하지 않음
+     ============================================================ -->
+<script type="module" id="gnp-v40-final-realtime-proposals">
+import {
+  collection,
+  doc,
+  getDocs,
+  onSnapshot,
+  setDoc,
+  deleteDoc,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+
+(() => {
+  'use strict';
+
+  const COLLECTION = 'safetyProposals';
+  let rows = [];
+  let unsub = null;
+  let installed = false;
+  let writeChain = Promise.resolve();
+
+  const idOf = x => String(x?.id || '').trim();
+
+  function db(){
+    const value = window.gnpFirebase?.db;
+    if(!value) throw new Error('Firestore DB가 준비되지 않았습니다.');
+    return value;
+  }
+
+  function copyRows(input){
+    return (Array.isArray(input) ? input : []).map(x => ({...x}));
+  }
+
+  function cleanForFirestore(row){
+    const out = {...row};
+    delete out.syncUpdatedAt;
+    delete out.__v37Rows;
+    delete out.__v40Rows;
+    Object.keys(out).forEach(k => {
+      if(out[k] === undefined) delete out[k];
+    });
+    return out;
+  }
+
+  function renderNow(){
+    const ai = window.app?.ai1;
+    if(!ai) return;
+
+    ai.__v40Rows = copyRows(rows);
+
+    try {
+      ai.render?.();
+    } catch(error) {
+      console.error('[GNP v40] 목록 렌더 오류:', error);
+    }
+
+    // 이미 관리 화면이 열려 있을 때 후속 래퍼/레이아웃 변경 뒤에도 한 번 더 갱신
+    requestAnimationFrame(() => {
+      try { ai.render?.(); } catch(_) {}
+    });
+  }
+
+  async function put(row){
+    const id = idOf(row);
+    if(!id) return;
+
+    await setDoc(
+      doc(db(), COLLECTION, id),
+      {
+        ...cleanForFirestore(row),
+        id,
+        syncSource: 'GNP-v40',
+        syncUpdatedAt: serverTimestamp()
+      },
+      {merge:true}
+    );
+  }
+
+  async function removeDoc(id){
+    const value = String(id || '').trim();
+    if(!value) return;
+    await deleteDoc(doc(db(), COLLECTION, value));
+  }
+
+  function queue(label, fn){
+    writeChain = writeChain
+      .catch(() => {})
+      .then(fn)
+      .catch(error => {
+        console.error('[GNP v40]', label, error);
+        throw error;
+      });
+    return writeChain;
+  }
+
+  function installAppBridge(){
+    const ai = window.app?.ai1;
+    if(!ai) return false;
+
+    // 조회는 localStorage가 아니라 항상 최신 Firestore snapshot 메모리만 사용
+    ai.getData = function(){
+      return copyRows(rows);
+    };
+
+    // 기존 상태변경/결재/평가/수정 코드가 saveData(rows)를 호출하면
+    // 변경된 문서만 Firestore에 쓰고, 빠진 문서는 삭제
+    ai.saveData = function(nextRows){
+      const next = copyRows(nextRows).filter(x => idOf(x));
+      const beforeMap = new Map(rows.map(x => [idOf(x), x]));
+      const nextMap = new Map(next.map(x => [idOf(x), x]));
+
+      // UI는 먼저 즉시 반영
+      rows = next;
+      renderNow();
+
+      queue('saveData', async () => {
+        for(const item of next){
+          const id = idOf(item);
+          const before = beforeMap.get(id);
+
+          if(JSON.stringify(cleanForFirestore(before || {})) !==
+             JSON.stringify(cleanForFirestore(item))){
+            await put(item);
+          }
+        }
+
+        for(const id of beforeMap.keys()){
+          if(!nextMap.has(id)){
+            await removeDoc(id);
+          }
+        }
+      }).catch(error => {
+        alert(`안전제안 Firestore 동기화 실패\n\n${error?.message || error}`);
+      });
+
+      return true;
+    };
+
+    return true;
+  }
+
+  function startListener(){
+    if(unsub){
+      try { unsub(); } catch(_) {}
+    }
+
+    unsub = onSnapshot(
+      collection(db(), COLLECTION),
+      snapshot => {
+        rows = snapshot.docs
+          .map(d => {
+            const data = d.data() || {};
+            return {...data, id:String(data.id || d.id)};
+          })
+          .filter(x => idOf(x));
+
+        // 최신 등록순 유지
+        rows.sort((a,b) => {
+          const na = Number(String(a.id).replace(/\D/g,'')) || 0;
+          const nb = Number(String(b.id).replace(/\D/g,'')) || 0;
+          return nb - na;
+        });
+
+        renderNow();
+
+        window.gnpRealtimeStatus = {
+          active:true,
+          count:rows.length,
+          lastUpdate:new Date().toISOString()
+        };
+
+        console.log(
+          '[GNP v40] REALTIME 수신 완료:',
+          rows.length + '건',
+          snapshot.metadata.fromCache ? '(cache)' : '(server)'
+        );
+      },
+      error => {
+        window.gnpRealtimeStatus = {
+          active:false,
+          error:String(error?.message || error)
+        };
+        console.error('[GNP v40] REALTIME 수신 실패:', error);
+      }
+    );
+  }
+
+  async function install(){
+    if(installed) return true;
+    if(!window.gnpFirebase?.db || !window.app?.ai1) return false;
+
+    // onSnapshot 전에 서버 현재값을 한 번 직접 읽어 초기 화면을 확정
+    const snap = await getDocs(collection(db(), COLLECTION));
+    rows = snap.docs.map(d => {
+      const data = d.data() || {};
+      return {...data, id:String(data.id || d.id)};
+    }).filter(x => idOf(x));
+
+    rows.sort((a,b) => {
+      const na = Number(String(a.id).replace(/\D/g,'')) || 0;
+      const nb = Number(String(b.id).replace(/\D/g,'')) || 0;
+      return nb - na;
+    });
+
+    installAppBridge();
+    renderNow();
+    startListener();
+
+    installed = true;
+
+    window.gnpRealtimeStatus = {
+      active:true,
+      count:rows.length,
+      lastUpdate:new Date().toISOString(),
+      version:'v40'
+    };
+
+    console.log('[GNP v40] PC↔모바일 Firestore 실시간 조회 ACTIVE:', rows.length + '건');
+    return true;
+  }
+
+  let tries = 0;
+  const timer = setInterval(() => {
+    install().then(ok => {
+      if(ok || ++tries > 300) clearInterval(timer);
+    }).catch(error => {
+      console.error('[GNP v40] 설치 오류:', error);
+      if(++tries > 300) clearInterval(timer);
+    });
+  }, 100);
+
+  window.addEventListener('beforeunload', () => {
+    try { unsub?.(); } catch(_) {}
+  });
+})();
+</script>
+
