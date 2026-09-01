@@ -15915,5 +15915,168 @@ import {
 })();
 </script>
 
+
+<script id="gnp-v47-current-user-firestore-authority">
+(function(){
+  'use strict';
+
+  const getApp = () => {
+    try { if(typeof app !== 'undefined' && app) return app; } catch(_){}
+    return window.app || null;
+  };
+
+  function aliases(u){
+    if(!u) return [];
+    return [
+      u.id, u.legacyId, u.name, u.firebaseUid, u.uid, u.email
+    ].map(v => String(v || '').trim()).filter(Boolean);
+  }
+
+  function sameUser(a,b){
+    const A = new Set(aliases(a));
+    return aliases(b).some(x => A.has(x));
+  }
+
+  function sharedUsers(){
+    const a = getApp();
+    try {
+      const list = a?.db?.getUsers?.();
+      return Array.isArray(list) ? list : [];
+    } catch(_) {
+      return [];
+    }
+  }
+
+  function findFresh(me){
+    const list = sharedUsers();
+    if(!me || !list.length) return null;
+
+    // 1순위: 모든 식별자 교차 매칭
+    let found = list.find(u => sameUser(u, me));
+    if(found) return found;
+
+    // 2순위: 로그인 이름/성명 기준
+    const targetName = String(me.name || me.id || '').trim();
+    if(targetName){
+      found = list.find(u =>
+        String(u.name || '').trim() === targetName ||
+        String(u.legacyId || '').trim() === targetName ||
+        String(u.id || '').trim() === targetName
+      );
+    }
+    return found || null;
+  }
+
+  function applyFreshUser(reason){
+    const a = getApp();
+    const me = a?.auth?.currentUser;
+    if(!a?.auth || !me) return null;
+
+    const fresh = findFresh(me);
+    if(!fresh) return null;
+
+    // Firestore 프로필의 role/team을 최우선으로 덮어쓴다.
+    const merged = {
+      ...me,
+      ...fresh,
+      id: fresh.legacyId || fresh.id || me.id,
+      legacyId: fresh.legacyId || fresh.id || me.legacyId,
+      name: fresh.name || me.name || fresh.id,
+      role: fresh.role || me.role || '반원',
+      team: fresh.team || me.team || '미지정'
+    };
+
+    a.auth.currentUser = merged;
+
+    const info = document.getElementById('user-info');
+    const role = document.getElementById('user-role');
+    const avatar = document.getElementById('user-avatar');
+
+    if(info) info.textContent = `${merged.name || merged.id} (${merged.team || '미지정'})`;
+    if(role) role.textContent = String(merged.role || '반원');
+    if(avatar) avatar.textContent = String(merged.name || merged.id || 'G').charAt(0);
+
+    window.gnpCurrentUserSyncStatus = {
+      version:'v47',
+      active:true,
+      reason,
+      id:merged.id,
+      name:merged.name,
+      role:merged.role,
+      team:merged.team,
+      updatedAt:new Date().toISOString()
+    };
+
+    return merged;
+  }
+
+  function patchApproval(){
+    const api = window.safetyRole;
+    if(!api || typeof api.approve !== 'function') return false;
+    if(api.approve.__gnpV47ProfileGuard) return true;
+
+    const original = api.approve.bind(api);
+
+    const wrapped = function(){
+      // 기존 함수가 "같은 팀이 아닙니다"를 검사하기 전에
+      // 반드시 Firestore 최신 role/team을 currentUser에 반영.
+      applyFreshUser('before-approval');
+      return original.apply(this, arguments);
+    };
+
+    wrapped.__gnpV47ProfileGuard = true;
+    api.approve = wrapped;
+    return true;
+  }
+
+  function patchLogin(){
+    const a = getApp();
+    if(!a?.auth || typeof a.auth.login !== 'function') return false;
+    if(a.auth.login.__gnpV47ProfileGuard) return true;
+
+    const original = a.auth.login.bind(a.auth);
+
+    const wrapped = function(){
+      const result = original.apply(this, arguments);
+
+      // 로그인 완료 타이밍이 경로별로 달라서 짧게 재동기화.
+      [0,100,300,700,1500].forEach(ms => {
+        setTimeout(() => applyFreshUser('after-login'), ms);
+      });
+
+      return result;
+    };
+
+    wrapped.__gnpV47ProfileGuard = true;
+    a.auth.login = wrapped;
+    return true;
+  }
+
+  function refresh(){
+    applyFreshUser('periodic-refresh');
+    patchApproval();
+    patchLogin();
+  }
+
+  // users onSnapshot(v46)이 갱신된 직후 currentUser도 다시 Firestore 기준으로 맞춘다.
+  let ticks = 0;
+  const timer = setInterval(() => {
+    refresh();
+    if(++ticks > 1800) clearInterval(timer); // 약 3분
+  },100);
+
+  document.addEventListener('click', e => {
+    const t = e.target?.closest?.('button,a');
+    if(!t) return;
+    const text = String(t.textContent || '');
+    if(text.includes('결재') || text.includes('승인')){
+      applyFreshUser('approval-click');
+    }
+  }, true);
+
+  console.log('[GNP v47] currentUser Firestore 권한/팀 강제동기화 ACTIVE');
+})();
+</script>
+
 </body>
 </html>
