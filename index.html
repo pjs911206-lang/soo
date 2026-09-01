@@ -13515,757 +13515,295 @@ const app = {
 
 
 
-<script type="module" id="gnp-firestore-single-source-v32">
-import {
-  collection, doc, setDoc, deleteDoc, getDocs, onSnapshot, serverTimestamp
-} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
-
-(function(){
-  'use strict';
-
-  const USERS = 'users';
-  const PROPOSALS = 'safetyProposals';
-
-  let proposalCache = [];
-  let userCache = [];
-  let userUnsub = null;
-  let proposalUnsub = null;
-  let ready = false;
-  let migrationDone = false;
-
-  const safeParse = (v, fallback=[]) => {
-    try {
-      const x = JSON.parse(v);
-      return Array.isArray(x) ? x : fallback;
-    } catch { return fallback; }
-  };
-
-  const uid = u => String(u?.id || u?.legacyId || u?.name || '').trim();
-  const pid = p => String(p?.id || '').trim();
-
-  function db(){
-    const value = window.gnpFirebase?.db;
-    if(!value) throw new Error('Firestore가 초기화되지 않았습니다.');
-    return value;
-  }
-
-  /*
-   * One-time manual migration:
-   * take the current device's 46 local proposals and upload them as the
-   * authoritative Firestore set. Nothing is deleted automatically until
-   * the user explicitly presses the confirmation button.
-   */
-  async function migrateCurrentDeviceToFirestore(){
-    const local = safeParse(localStorage.getItem('gnp_ai1_proposals') || '[]');
-    if(!local.length) throw new Error('현재 기기에 저장된 안전제안이 없습니다.');
-
-    const cleaned = local.filter(x => pid(x));
-
-    for(const row of cleaned){
-      await setDoc(
-        doc(db(), PROPOSALS, pid(row)),
-        {
-          ...row,
-          id:pid(row),
-          migratedFrom:'current-device',
-          migratedAt:serverTimestamp(),
-          syncSource:'GNP-v32'
-        },
-        {merge:true}
-      );
-    }
-
-    /*
-     * Delete cloud proposals not in the selected 46-device set.
-     * This is executed only by the explicit "46건을 기준으로 확정" button.
-     */
-    const cloud = await getDocs(collection(db(), PROPOSALS));
-    const keep = new Set(cleaned.map(pid));
-
-    for(const d of cloud.docs){
-      const id = String(d.data()?.id || d.id);
-      if(!keep.has(id)){
-        await deleteDoc(doc(db(), PROPOSALS, d.id));
-      }
-    }
-
-    migrationDone = true;
-    console.log('[GNP v32] current-device proposal set made authoritative:', cleaned.length);
-    alert(`현재 기기의 ${cleaned.length}건을 Firestore 기준으로 확정했습니다.`);
-  }
-
-  /*
-   * Realtime Firestore -> in-memory application cache.
-   * IMPORTANT: after migration, Firestore is the ONLY persistent source for
-   * proposals/users. localStorage is not written by this bridge.
-   */
-  function startRealtime(){
-    const firestore = db();
-
-    if(userUnsub) try{userUnsub();}catch(_){}
-    if(proposalUnsub) try{proposalUnsub();}catch(_){}
-
-    userUnsub = onSnapshot(
-      collection(firestore, USERS),
-      snap => {
-        const byId = new Map();
-
-        snap.docs.forEach(d => {
-          const x = d.data() || {};
-          const id = String(x.legacyId || x.id || x.name || d.id).trim();
-          if(!id) return;
-          const row = {...x, id};
-
-          const old = byId.get(id);
-          if(!old || d.id === id) byId.set(id,row);
-        });
-
-        userCache = [...byId.values()];
-
-        /*
-         * Do not write to localStorage. Feed the existing UI/runtime.
-         */
-        try{
-          if(window.app?.db){
-            window.app.db.__gnpV32Users = userCache;
-          }
-          const me = window.app?.auth?.currentUser;
-          if(me){
-            const fresh = userCache.find(u => uid(u) === uid(me));
-            if(fresh){
-              window.app.auth.currentUser = {...me,...fresh};
-            }
-          }
-          window.renderPermissionV3?.();
-          window.permissionControl?.filter?.();
-          window.app?.auth?.refreshPanel?.();
-        }catch(_){}
-        refreshTopBar();
-      },
-      e => console.error('[GNP v32] users realtime error', e)
-    );
-
-    proposalUnsub = onSnapshot(
-      collection(firestore, PROPOSALS),
-      snap => {
-        proposalCache = snap.docs.map(d=>{
-          const x=d.data()||{};
-          return {...x,id:String(x.id||d.id)};
-        }).filter(x=>pid(x));
-
-        /*
-         * Feed the existing safety-proposal UI directly in memory.
-         * Never persist proposalCache to localStorage.
-         */
-        try{
-          if(window.app?.ai1){
-            window.app.ai1.__gnpV32Data = proposalCache;
-            window.app.ai1.__gnpV32Realtime = true;
-            window.app.ai1.render?.();
-          }
-        }catch(_){}
-        refreshProposalUI();
-      },
-      e => console.error('[GNP v32] proposals realtime error', e)
-    );
-  }
-
-  function refreshTopBar(){
-    const u=window.app?.auth?.currentUser;
-    if(!u) return;
-    const info=document.getElementById('user-info');
-    const role=document.getElementById('user-role');
-    const avatar=document.getElementById('user-avatar');
-
-    if(info) info.textContent=`${u.name||u.id||''} (${u.team||'미지정'})`;
-    if(role) role.textContent=String(u.role||'반원');
-    if(avatar) avatar.textContent=String(u.name||u.id||'G').charAt(0);
-  }
-
-  function refreshProposalUI(){
-    try{
-      const list = proposalCache;
-      if(document.getElementById('ai1-dash-total')){
-        document.getElementById('ai1-dash-total').textContent = String(list.length);
-      }
-      window.app?.ai1?.render?.();
-    }catch(_){}
-  }
-
-  /*
-   * Firestore-only application accessors.
-   * These are runtime overrides, not localStorage mirrors.
-   */
-  function installDataAccess(){
-    const app=window.app;
-    if(!app?.db || !app?.ai1) return false;
-
-    app.db.getUsers = () => userCache.slice();
-
-    app.db.saveUsers = rows => {
-      const next = Array.isArray(rows) ? structuredClone(rows) : [];
-      const before = new Map(userCache.map(u=>[uid(u),u]).filter(([id])=>id));
-
-      userCache = next;
-
-      next.forEach(user=>{
-        const id=uid(user);
-        if(!id) return;
-        const old=before.get(id);
-        if(JSON.stringify(old)!==JSON.stringify(user)){
-          setDoc(
-            doc(db(),USERS,id),
-            {...user,id,legacyId:id,syncSource:'GNP-v32',syncUpdatedAt:serverTimestamp()},
-            {merge:true}
-          ).catch(e=>console.error('[GNP v32] user save failed',e));
-        }
-      });
-
-      return true;
-    };
-
-    app.ai1.getData = () => proposalCache.slice();
-
-    app.ai1.saveData = rows => {
-      const next = Array.isArray(rows) ? structuredClone(rows) : [];
-      const before = new Map(proposalCache.map(p=>[pid(p),p]).filter(([id])=>id));
-      const after = new Map(next.map(p=>[pid(p),p]).filter(([id])=>id));
-
-      proposalCache = next;
-
-      after.forEach((row,id)=>{
-        if(JSON.stringify(before.get(id))!==JSON.stringify(row)){
-          setDoc(
-            doc(db(),PROPOSALS,id),
-            {...row,id,syncSource:'GNP-v32',syncUpdatedAt:serverTimestamp()},
-            {merge:true}
-          ).catch(e=>console.error('[GNP v32] proposal save failed',id,e));
-        }
-      });
-
-      before.forEach((_,id)=>{
-        if(!after.has(id)){
-          deleteDoc(doc(db(),PROPOSALS,id))
-            .catch(e=>console.error('[GNP v32] proposal delete failed',id,e));
-        }
-      });
-
-      try{app.ai1.render?.();}catch(_){}
-      return true;
-    };
-
-    return true;
-  }
-
-  function install(){
-    if(ready) return true;
-    if(!window.gnpFirebase?.db || !window.app?.db || !window.app?.ai1) return false;
-
-    ready=true;
-
-    installDataAccess();
-    startRealtime();
-    refreshTopBar();
-    installMigrationUI();
-
-    console.log('[GNP v32] Firestore single-source realtime active');
-    return true;
-  }
-
-  function installMigrationUI(){
-    if(document.getElementById('gnp-v32-migration')) return;
-
-    const box=document.createElement('div');
-    box.id='gnp-v32-migration';
-    box.className='hidden';
-    box.innerHTML=`
-      <div class="font-black text-slate-900">안전제안 데이터 기준 설정</div>
-      <div class="muted mt-1">현재 기기의 안전제안 목록을 Firestore의 최종 기준으로 확정합니다.</div>
-      <div class="text-sm font-black mt-3" id="gnp-v32-count">현재 0건</div>
-      <div class="flex gap-2 mt-3">
-        <button class="primary flex-1" id="gnp-v32-migrate">현재 목록을 Firestore 기준으로 확정</button>
-        <button class="ghost" id="gnp-v32-close">닫기</button>
-      </div>
-      <div class="muted mt-2">※ 관리자 확인 후 한 번만 실행하세요.</div>
-    `;
-    document.body.appendChild(box);
-
-    document.getElementById('gnp-v32-migrate').onclick=async()=>{
-      try{
-        const n=safeParse(localStorage.getItem('gnp_ai1_proposals')||'[]').length;
-        if(!confirm(`현재 기기의 ${n}건을 Firestore의 최종 기준으로 확정할까요?\\nFirestore에 없는 기존 문서는 삭제됩니다.`)) return;
-        await migrateCurrentDeviceToFirestore();
-        box.classList.add('hidden');
-      }catch(e){
-        console.error(e);
-        alert(`기준 데이터 반영 실패: ${e?.message||e}`);
-      }
-    };
-    document.getElementById('gnp-v32-close').onclick=()=>box.classList.add('hidden');
-
-    /*
-     * Expose manual opening to admin/dev console.
-     */
-    window.gnpV32={
-      openMigration:()=>{
-        const rows=safeParse(localStorage.getItem('gnp_ai1_proposals')||'[]');
-        document.getElementById('gnp-v32-count').textContent=`현재 기기 안전제안 ${rows.length}건`;
-        box.classList.remove('hidden');
-      },
-      migrateCurrentDeviceToFirestore
-    };
-
-    /*
-     * Admin can open with Alt+Shift+M, avoiding any change to normal UI.
-     */
-    window.addEventListener('keydown',e=>{
-      if(e.altKey && e.shiftKey && e.key.toLowerCase()==='m'){
-        window.gnpV32.openMigration();
-      }
-    });
-  }
-
-  let tries=0;
-  const timer=setInterval(()=>{
-    if(install() || ++tries>300){
-      clearInterval(timer);
-    }
-  },100);
-})();
-</script>
-
-
 
 <!-- ============================================================
-     GNP FIRESTORE SINGLE SOURCE v33
-     Safety-proposal + user/permission data:
-       - Firestore is the persistent source of truth.
-       - Browser localStorage is NOT persisted for these domains.
-       - Legacy localStorage calls are compatibility-routed to the
-         current in-memory Firestore cache.
-       - onSnapshot() provides realtime fan-out to every open client.
-       - A one-time mobile migration prompt appears only when the
-         current device has more proposal records than Firestore.
+     GNP FIRESTORE DIRECT SAFETY PROPOSAL BRIDGE v34
+     Final save/read/delete authority for app.ai1.
+     This intentionally bypasses localStorage for safety proposals.
      ============================================================ -->
-<script type="module" id="gnp-firestore-single-source-v33">
+<script type="module" id="gnp-firestore-direct-ai1-v34">
 import {
   collection,
   doc,
   getDocs,
+  onSnapshot,
   setDoc,
   deleteDoc,
-  onSnapshot,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
 
-(function(){
+(() => {
   'use strict';
 
-  const PROPOSAL_KEY = 'gnp_ai1_proposals';
-  const USER_KEY = 'gnp_users';
-  const PROPOSAL_COL = 'safetyProposals';
-  const USER_COL = 'users';
-
-  let cloudProposals = [];
-  let cloudUsers = [];
-  let ready = false;
-  let proposalUnsub = null;
-  let userUnsub = null;
-  let migrationShown = false;
-  let writeQueue = Promise.resolve();
+  const COLLECTION = 'safetyProposals';
+  let installed = false;
+  let rows = [];
+  let unsubscribe = null;
+  let saveSerial = Promise.resolve();
 
   const clone = value => {
     try { return JSON.parse(JSON.stringify(value)); }
     catch { return value; }
   };
 
-  const pid = row => String(row?.id || '').trim();
-  const uid = row => String(row?.id || row?.legacyId || row?.name || '').trim();
+  const idOf = row => String(row?.id || '').trim();
 
-  function db(){
-    const value = window.gnpFirebase?.db;
-    if(!value) throw new Error('Firestore가 초기화되지 않았습니다.');
+  function getDb(){
+    return window.gnpFirebase?.db || null;
+  }
+
+  function compactDataUrl(value){
+    if(typeof value !== 'string' || !/^data:image\//i.test(value)) return value || '';
+    if(value.length <= 220000) return value;
+
     return value;
   }
 
-  function fireAndForget(task, label){
-    writeQueue = writeQueue
-      .catch(()=>{})
-      .then(task)
-      .catch(error => console.error('[GNP v33]', label, error));
-    return writeQueue;
-  }
+  function sanitizeRow(row){
+    const out = clone(row) || {};
+    Object.keys(out).forEach(k => {
+      if(out[k] === undefined) delete out[k];
+    });
 
-  function render(){
-    try{
-      if(window.app?.ai1){
-        window.app.ai1.__cloudData = clone(cloudProposals);
-        window.app.ai1.render?.();
-      }
-    }catch(e){
-      console.error('[GNP v33] proposal render',e);
-    }
-
-    try{
-      if(window.app?.db) window.app.db.__cloudUsers = clone(cloudUsers);
-      const me=window.app?.auth?.currentUser;
-      if(me){
-        const fresh=cloudUsers.find(u=>uid(u)===uid(me));
-        if(fresh) window.app.auth.currentUser={...me,...fresh};
-      }
-      window.app?.ui?.renderUserAdmin?.();
-      window.renderPermissionV3?.();
-    }catch(e){
-      console.error('[GNP v33] user render',e);
-    }
-
-    refreshTopbar();
-  }
-
-  function refreshTopbar(){
-    const u=window.app?.auth?.currentUser;
-    if(!u) return;
-    const info=document.getElementById('user-info');
-    const role=document.getElementById('user-role');
-    const avatar=document.getElementById('user-avatar');
-    if(info) info.textContent=`${u.name||u.id||''} (${u.team||'미지정'})`;
-    if(role) role.textContent=String(u.role||'반원');
-    if(avatar) avatar.textContent=String(u.name||u.id||'G').charAt(0);
-  }
-
-  async function migrateCurrentDeviceAsCanonical(){
-    const localRaw=localStorage.getItem(PROPOSAL_KEY);
-    let local=[];
-    try{
-      const parsed=JSON.parse(localRaw||'[]');
-      local=Array.isArray(parsed)?parsed.filter(x=>pid(x)):[];
-    }catch(_){}
-
-    if(!local.length){
-      throw new Error('현재 기기에서 읽을 수 있는 안전제안이 없습니다.');
-    }
-
-    const localIds=new Set(local.map(pid));
-
-    for(const row of local){
-      await setDoc(
-        doc(db(),PROPOSAL_COL,pid(row)),
-        {
-          ...row,
-          id:pid(row),
-          syncSource:'GNP-v33-mobile-canonical',
-          syncUpdatedAt:serverTimestamp()
-        },
-        {merge:true}
-      );
-    }
-
-    const snap=await getDocs(collection(db(),PROPOSAL_COL));
-
-    for(const item of snap.docs){
-      const data=item.data()||{};
-      const id=String(data.id||item.id);
-      if(!localIds.has(id)){
-        await deleteDoc(doc(db(),PROPOSAL_COL,item.id));
-      }
-    }
-
-    alert(`현재 기기의 안전제안 ${local.length}건을 Firestore 최종 기준으로 반영했습니다.`);
-  }
-
-  function showMigrationPrompt(localCount, cloudCount){
-    if(migrationShown || localCount<=cloudCount) return;
-    migrationShown=true;
-
-    setTimeout(()=>{
-      const ok=confirm(
-        `현재 기기 안전제안은 ${localCount}건이고 Firestore는 ${cloudCount}건입니다.\\n\\n`+
-        `현재 기기의 ${localCount}건을 최종 기준으로 Firestore에 올릴까요?\\n`+
-        `※ Firestore에만 존재하는 기존 안전제안은 삭제됩니다.`
-      );
-
-      if(ok){
-        migrateCurrentDeviceAsCanonical()
-          .then(()=>location.reload())
-          .catch(error=>{
-            console.error('[GNP v33] migration failed',error);
-            alert(`기준 데이터 반영 실패:\\n${error?.message||error}`);
+    /*
+     * Photos can make a Firestore document exceed 1 MiB.
+     * Keep the existing data when small; for large images progressively
+     * re-encode them before Firestore write.
+     */
+    ['photoDataUrl','improvementPhotoDataUrl','beforePhotoDataUrl','afterPhotoDataUrl',
+     'photo','improvementPhoto','actionPhotoBefore','actionPhotoAfter'].forEach(key=>{
+      if(typeof out[key] === 'string' && /^data:image\//i.test(out[key]) && out[key].length > 220000){
+        try{
+          const img = new Image();
+          const original = out[key];
+          const p = new Promise(resolve=>{
+            img.onload=()=>{
+              try{
+                const maxSide=720;
+                const scale=Math.min(1,maxSide/Math.max(img.naturalWidth||1,img.naturalHeight||1));
+                const canvas=document.createElement('canvas');
+                canvas.width=Math.max(1,Math.round((img.naturalWidth||1)*scale));
+                canvas.height=Math.max(1,Math.round((img.naturalHeight||1)*scale));
+                const ctx=canvas.getContext('2d');
+                ctx.fillStyle='#fff';
+                ctx.fillRect(0,0,canvas.width,canvas.height);
+                ctx.drawImage(img,0,0,canvas.width,canvas.height);
+                resolve(canvas.toDataURL('image/jpeg',0.52));
+              }catch(_){ resolve(original); }
+            };
+            img.onerror=()=>resolve(original);
           });
+          out[`__compress_${key}`]=p;
+        }catch(_){}
       }
-    },1200);
+    });
+
+    return out;
+  }
+
+  async function normalizeForFirestore(row){
+    const out = clone(row) || {};
+
+    /*
+     * Recompress any oversized image synchronously through Image/Canvas.
+     * This keeps proposal documents below Firestore's document limit.
+     */
+    const imageKeys=[
+      'photoDataUrl','improvementPhotoDataUrl','beforePhotoDataUrl','afterPhotoDataUrl',
+      'photo','improvementPhoto','actionPhotoBefore','actionPhotoAfter'
+    ];
+
+    for(const key of imageKeys){
+      const value=out[key];
+      if(typeof value !== 'string' || !/^data:image\//i.test(value)) continue;
+      if(value.length <= 220000) continue;
+
+      out[key]=await new Promise(resolve=>{
+        const img=new Image();
+        img.onload=()=>{
+          try{
+            const maxSide=680;
+            const scale=Math.min(1,maxSide/Math.max(img.naturalWidth||1,img.naturalHeight||1));
+            const canvas=document.createElement('canvas');
+            canvas.width=Math.max(1,Math.round((img.naturalWidth||1)*scale));
+            canvas.height=Math.max(1,Math.round((img.naturalHeight||1)*scale));
+            const ctx=canvas.getContext('2d');
+            ctx.fillStyle='#fff';
+            ctx.fillRect(0,0,canvas.width,canvas.height);
+            ctx.drawImage(img,0,0,canvas.width,canvas.height);
+            resolve(canvas.toDataURL('image/jpeg',0.5));
+          }catch(_){ resolve(value); }
+        };
+        img.onerror=()=>resolve(value);
+        img.src=value;
+      });
+    }
+
+    Object.keys(out).forEach(k=>{
+      if(out[k] && typeof out[k].then === 'function') delete out[k];
+      if(out[k] === undefined) delete out[k];
+    });
+
+    return out;
+  }
+
+  async function writeRow(row){
+    const id=idOf(row);
+    if(!id) throw new Error('안전제안 ID가 없습니다.');
+
+    const safe=await normalizeForFirestore(row);
+
+    await setDoc(
+      doc(getDb(),COLLECTION,id),
+      {
+        ...safe,
+        id,
+        syncSource:'GNP-v34',
+        syncedAt:serverTimestamp()
+      },
+      {merge:true}
+    );
+  }
+
+  async function deleteRow(id){
+    const value=String(id||'').trim();
+    if(!value) return;
+
+    await deleteDoc(
+      doc(getDb(),COLLECTION,value)
+    );
+  }
+
+  function repaint(){
+    try { window.app?.ai1?.render?.(); } catch(error) {
+      console.error('[GNP v34] render failed',error);
+    }
   }
 
   function startRealtime(){
-    const firestore=db();
+    if(unsubscribe) try{unsubscribe();}catch(_){}
 
-    userUnsub=onSnapshot(
-      collection(firestore,USER_COL),
+    unsubscribe=onSnapshot(
+      collection(getDb(),COLLECTION),
       snap=>{
-        const byId=new Map();
-        snap.docs.forEach(item=>{
-          const data=item.data()||{};
-          const id=String(data.legacyId||data.id||data.name||item.id).trim();
-          if(!id) return;
-          const row={...data,id};
-          const prev=byId.get(id);
-          if(!prev || item.id===id) byId.set(id,row);
-        });
-        cloudUsers=[...byId.values()];
-        render();
-      },
-      error=>console.error('[GNP v33] users realtime error',error)
-    );
-
-    proposalUnsub=onSnapshot(
-      collection(firestore,PROPOSAL_COL),
-      snap=>{
-        cloudProposals=snap.docs.map(item=>{
-          const data=item.data()||{};
-          return {...data,id:String(data.id||item.id)};
-        }).filter(x=>pid(x));
-
-        render();
+        rows=snap.docs.map(d=>{
+          const data=d.data()||{};
+          return {...data,id:String(data.id||d.id)};
+        }).filter(x=>idOf(x));
 
         /*
-         * One-time migration check:
-         * compare this device's current legacy cache with Firestore.
-         * This prompt only appears on a device whose local set is larger.
+         * No localStorage write here.
+         * Firestore snapshot is the shared source for every device.
          */
-        if(!migrationShown){
-          let local=[];
-          try{
-            const parsed=JSON.parse(localStorage.getItem(PROPOSAL_KEY)||'[]');
-            local=Array.isArray(parsed)?parsed.filter(x=>pid(x)):[];
-          }catch(_){}
-          showMigrationPrompt(local.length,cloudProposals.length);
-        }
+        repaint();
+        console.log('[GNP v34] Firestore realtime:',rows.length);
       },
-      error=>console.error('[GNP v33] proposals realtime error',error)
+      error=>{
+        console.error('[GNP v34] Firestore listener error:',error);
+      }
     );
   }
 
-  function installStorageCompatibility(){
-    if(window.__gnpV33StorageCompat) return;
+  function patch(){
+    const app=window.app;
+    if(!app?.ai1 || !getDb()) return false;
 
     /*
-     * Legacy safety-proposal code still calls localStorage directly.
-     * Route those reads to Firestore cache and writes to Firestore.
-     * No gnp_ai1_proposals data is persisted in browser storage.
+     * Replace the public data interface after every legacy sync patch has
+     * finished loading.
      */
-    const proto=Storage.prototype;
-    const rawGet=proto.getItem;
-    const rawSet=proto.setItem;
-    const rawRemove=proto.removeItem;
+    app.ai1.getData=()=>clone(rows);
 
-    proto.getItem=function(key){
-      if(this===window.localStorage && key===PROPOSAL_KEY){
-        return JSON.stringify(cloudProposals);
-      }
-      if(this===window.localStorage && key===USER_KEY){
-        return JSON.stringify(cloudUsers);
-      }
-      return rawGet.call(this,key);
-    };
+    app.ai1.saveData=(nextRows)=>{
+      const next=Array.isArray(nextRows)?clone(nextRows):[];
 
-    proto.setItem=function(key,value){
-      if(this===window.localStorage && key===PROPOSAL_KEY){
-        let rows=[];
-        try{
-          const parsed=JSON.parse(value||'[]');
-          rows=Array.isArray(parsed)?parsed.filter(x=>pid(x)):[];
-        }catch(_){}
+      const before=new Map(rows.map(x=>[idOf(x),x]).filter(([id])=>id));
+      const after=new Map(next.map(x=>[idOf(x),x]).filter(([id])=>id));
 
-        cloudProposals=clone(rows);
+      rows=next;
 
-        const nextMap=new Map(rows.map(x=>[pid(x),x]));
-        const cloudMap=new Map(cloudProposals.map(x=>[pid(x),x]));
-
-        return fireAndForget(async()=>{
-          for(const row of rows){
-            await setDoc(
-              doc(db(),PROPOSAL_COL,pid(row)),
-              {
-                ...row,
-                id:pid(row),
-                syncSource:'GNP-v33',
-                syncUpdatedAt:serverTimestamp()
-              },
-              {merge:true}
-            );
-          }
-          /*
-           * IMPORTANT: deletion reconciliation is based on the current
-           * Firestore collection, not a stale device list.
-           */
-          const snap=await getDocs(collection(db(),PROPOSAL_COL));
-          const keep=new Set(rows.map(pid));
-          for(const item of snap.docs){
-            const id=String(item.data()?.id||item.id);
-            if(!keep.has(id)){
-              await deleteDoc(doc(db(),PROPOSAL_COL,item.id));
+      saveSerial=saveSerial
+        .catch(()=>{})
+        .then(async()=>{
+          for(const row of next){
+            const id=idOf(row);
+            if(!id) continue;
+            if(JSON.stringify(before.get(id)) !== JSON.stringify(row)){
+              await writeRow(row);
             }
           }
-        },'proposal compatibility write');
-      }
 
-      if(this===window.localStorage && key===USER_KEY){
-        let rows=[];
-        try{
-          const parsed=JSON.parse(value||'[]');
-          rows=Array.isArray(parsed)?parsed.filter(x=>uid(x)):[];
-        }catch(_){}
-        cloudUsers=clone(rows);
-
-        return fireAndForget(async()=>{
-          for(const row of rows){
-            const id=uid(row);
-            if(!id) continue;
-            await setDoc(
-              doc(db(),USER_COL,id),
-              {
-                ...row,
-                id,
-                legacyId:id,
-                syncSource:'GNP-v33',
-                syncUpdatedAt:serverTimestamp()
-              },
-              {merge:true}
-            );
+          for(const [id] of before){
+            if(!after.has(id)){
+              await deleteRow(id);
+            }
           }
-        },'user compatibility write');
-      }
-
-      return rawSet.call(this,key,value);
-    };
-
-    proto.removeItem=function(key){
-      if(this===window.localStorage && key===PROPOSAL_KEY){
-        cloudProposals=[];
-        return fireAndForget(async()=>{
-          const snap=await getDocs(collection(db(),PROPOSAL_COL));
-          await Promise.all(snap.docs.map(item=>deleteDoc(doc(db(),PROPOSAL_COL,item.id))));
-        },'proposal compatibility delete all');
-      }
-      return rawRemove.call(this,key);
-    };
-
-    window.__gnpV33StorageCompat=true;
-  }
-
-  function installAppApi(){
-    const app=window.app;
-    if(!app?.db || !app?.ai1) return false;
-
-    app.db.getUsers=()=>clone(cloudUsers);
-
-    app.db.saveUsers=rows=>{
-      const next=Array.isArray(rows)?clone(rows):[];
-      cloudUsers=next;
-      fireAndForget(async()=>{
-        for(const row of next){
-          const id=uid(row);
-          if(!id) continue;
-          await setDoc(
-            doc(db(),USER_COL,id),
-            {
-              ...row,
-              id,
-              legacyId:id,
-              syncSource:'GNP-v33',
-              syncUpdatedAt:serverTimestamp()
-            },
-            {merge:true}
+        })
+        .catch(error=>{
+          console.error('[GNP v34] SAVE/DELETE ERROR:',error);
+          alert(
+            '안전제안 Firebase 저장에 실패했습니다.\\n\\n' +
+            (error?.message || error)
           );
-        }
-      },'app.db.saveUsers');
-      refreshTopbar();
-      return true;
-    };
+        });
 
-    app.ai1.getData=()=>clone(cloudProposals);
-
-    app.ai1.saveData=rows=>{
-      const next=Array.isArray(rows)?clone(rows):[];
-      const before=new Map(cloudProposals.map(x=>[pid(x),x]).filter(([id])=>id));
-      const after=new Map(next.map(x=>[pid(x),x]).filter(([id])=>id));
-      cloudProposals=next;
-
-      fireAndForget(async()=>{
-        for(const row of next){
-          const id=pid(row);
-          if(!id) continue;
-          await setDoc(
-            doc(db(),PROPOSAL_COL,id),
-            {
-              ...row,
-              id,
-              syncSource:'GNP-v33',
-              syncUpdatedAt:serverTimestamp()
-            },
-            {merge:true}
-          );
-        }
-
-        for(const [id] of before){
-          if(!after.has(id)){
-            await deleteDoc(doc(db(),PROPOSALS,id));
-          }
-        }
-      },'app.ai1.saveData');
-
-      try{app.ai1.render?.();}catch(_){}
+      repaint();
       return true;
     };
 
     /*
-     * Wrap the common AI1 remove/delete methods without changing UI.
+     * Catch common delete entry points used by older proposal-management
+     * patches.
      */
     ['remove','delete','deleteProposal'].forEach(name=>{
-      if(typeof app.ai1[name]!=='function' || app.ai1[name].__gnpV33) return;
-      const original=app.ai1[name].bind(app.ai1);
+      if(typeof app.ai1[name] !== 'function') return;
+
       app.ai1[name]=function(id){
-        const result=original(...arguments);
         const value=String(id||'').trim();
 
         if(value){
-          cloudProposals=cloudProposals.filter(row=>pid(row)!==value);
-          fireAndForget(
-            ()=>deleteDoc(doc(db(),PROPOSAL_COL,value)),
-            `app.ai1.${name}`
-          );
+          rows=rows.filter(x=>idOf(x)!==value);
+          repaint();
+
+          saveSerial=saveSerial
+            .catch(()=>{})
+            .then(()=>deleteRow(value))
+            .catch(error=>{
+              console.error('[GNP v34] DELETE ERROR:',error);
+              alert('안전제안 삭제 동기화에 실패했습니다.\\n\\n'+(error?.message||error));
+            });
         }
-        return result;
+
+        return true;
       };
-      app.ai1[name].__gnpV33=true;
     });
 
-    return true;
-  }
-
-  function install(){
-    if(ready) return true;
-    if(!window.gnpFirebase?.db || !window.app?.db || !window.app?.ai1) return false;
-
-    ready=true;
-    installStorageCompatibility();
-    installAppApi();
     startRealtime();
-
-    console.log('[GNP v33] FIRESTORE SINGLE SOURCE / REALTIME ACTIVE');
     return true;
   }
 
   let tries=0;
   const timer=setInterval(()=>{
-    if(install() || ++tries>300){
+    if(installed){
       clearInterval(timer);
+      return;
     }
-  },100);
 
-  window.addEventListener('beforeunload',()=>{
-    try{ userUnsub?.(); }catch(_){}
-    try{ proposalUnsub?.(); }catch(_){}
-  });
+    try{
+      if(patch()){
+        installed=true;
+        clearInterval(timer);
+        console.log('[GNP v34] DIRECT FIRESTORE SAFETY PROPOSAL MODE ACTIVE');
+      }else if(++tries>300){
+        clearInterval(timer);
+        console.error('[GNP v34] install timeout');
+      }
+    }catch(error){
+      console.error('[GNP v34] install error',error);
+      if(++tries>300) clearInterval(timer);
+    }
+  },150);
+
 })();
 </script>
 
