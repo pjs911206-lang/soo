@@ -327,6 +327,54 @@
 })();
 </script>
 
+
+
+
+<style id="gnp-v30-permission-visible">
+#view-PERM.active,
+#view-PERM-V3.active,
+#view-ADMIN.active{
+  display:block !important;
+  width:100% !important;
+  visibility:visible !important;
+  opacity:1 !important;
+}
+#view-AI1 .permission-inline,
+#view-AI1 .permission-panel,
+#view-AI1 [data-permission-view="inline"]{
+  display:none !important;
+}
+</style>
+<script id="gnp-v30-permission-nav-guard">
+(function(){
+  'use strict';
+  function bind(){
+    const ids=['permission-nav-v3','permission-nav-v2','permission-nav-item'];
+    ids.forEach(id=>{
+      const btn=document.getElementById(id);
+      if(!btn || btn.dataset.v30Bound==='1') return;
+      btn.dataset.v30Bound='1';
+      btn.addEventListener('click',function(){
+        /* Existing onclick remains the authoritative permission renderer. */
+        requestAnimationFrame(()=>{
+          const v=document.getElementById('view-PERM-V3') || document.getElementById('view-PERM');
+          if(v){
+            document.querySelectorAll('#main-body .view').forEach(x=>x.classList.remove('active'));
+            v.classList.add('active');
+            v.style.display='block';
+            const title=document.getElementById('view-title');
+            if(title) title.textContent='권한 설정';
+          }
+        });
+      });
+    });
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bind,{once:true});
+  else bind();
+  new MutationObserver(bind).observe(document.body,{childList:true,subtree:true});
+})();
+</script>
+
 </head>
 <!-- GNP v28 lightweight: unrelated module view payloads removed; safety proposal/permission/dashboard retained -->
 <body class="h-screen flex overflow-hidden">
@@ -13348,6 +13396,8 @@ const app = {
   /* body 전체 MutationObserver는 로그인 초기화/모바일 성능에 불필요하므로 사용하지 않습니다. */
 })();
 </script>
+
+
 </body>
 
 <!-- FINAL DATA SYNC ONLY: preserve latest UI, synchronize proposals through Firebase -->
