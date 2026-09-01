@@ -14416,14 +14416,8 @@ import {
         }
       });
 
-      before.forEach((_, id) => {
-        if(!after.has(id)){
-          enqueue(proposalWriteQueue, id, () => deleteProposal(id))
-            .catch(error =>
-              console.error('[GNP v27] proposal delete failed:', id, error)
-            );
-        }
-      });
+      // v45 SAFETY: 누락된 행을 삭제로 간주하지 않는다.
+      // 다른 PC의 부분/오래된 목록이 Firestore 기존 문서를 지우는 것을 방지한다.
 
       return true;
     };
@@ -14817,7 +14811,13 @@ import {
       next.map(row => [pid(row), row])
     );
 
-    proposalRows = next;
+    // v45 SAFETY: 부분 목록 저장은 현재 Firestore 캐시에 병합한다.
+    const mergedRows = new Map(proposalRows.map(row => [pid(row), row]));
+    next.forEach(row => {
+      const id=pid(row);
+      if(id) mergedRows.set(id,{...(mergedRows.get(id)||{}),...row,id});
+    });
+    proposalRows = [...mergedRows.values()];
     redraw();
 
     return enqueue('proposal write', async () => {
@@ -14828,11 +14828,8 @@ import {
         }
       }
 
-      for(const id of before.keys()) {
-        if(!after.has(id)) {
-          await deleteProposal(id);
-        }
-      }
+      // v45 SAFETY: nextRows에 없다는 이유로 Firestore 문서를 삭제하지 않는다.
+      // 실제 삭제는 사용자가 삭제 버튼을 누른 명시적 삭제 경로에서만 허용한다.
     });
   }
 
@@ -14861,22 +14858,21 @@ import {
       await writeProposal(row);
     }
 
-    const keep=new Set(local.map(pid));
-    for(const item of cloud.docs) {
-      const id=String(item.data()?.id || item.id);
-      if(!keep.has(id)) {
-        await deleteDoc(doc(getDb(), COLLECTION, item.id));
-      }
-    }
+    // v45 SAFETY: 로컬 목록을 기준으로 클라우드의 추가 문서를 절대 삭제하지 않는다.
+    // 클라우드 + 로컬을 ID 기준으로 병합한다.
+    const merged = new Map();
+    cloud.docs.forEach(item => {
+      const data=item.data()||{};
+      const id=String(data.id||item.id);
+      if(id) merged.set(id,{...data,id});
+    });
+    local.forEach(row => {
+      const id=pid(row);
+      if(id) merged.set(id,{...(merged.get(id)||{}),...row,id});
+    });
 
-    try { localStorage.removeItem(PROPOSAL_KEY); } catch(_) {}
-
-    proposalRows=local;
+    proposalRows=[...merged.values()];
     redraw();
-
-    alert(
-      `현재 모바일의 안전제안 ${local.length}건을 Firestore 기준으로 설정했습니다.`
-    );
   }
 
   function startRealtime() {
@@ -14996,16 +14992,9 @@ import {
 
     storage.removeItem=function(key) {
       if(this===window.localStorage && key===PROPOSAL_KEY) {
-        proposalRows=[];
-        enqueue('legacy proposal clear',async()=>{
-          const snap=await getDocs(collection(getDb(),COLLECTION));
-          for(const item of snap.docs) {
-            await deleteDoc(doc(getDb(),COLLECTION,item.id));
-          }
-        }).catch(error=>{
-          console.error('[GNP v37] proposal clear failed',error);
-        });
-        return;
+        // v45 SAFETY: localStorage 정리는 로컬 키만 제거한다.
+        // Firestore 전체 삭제로 절대 연결하지 않는다.
+        return rawRemove.call(this,key);
       }
 
       return rawRemove.call(this,key);
@@ -15222,7 +15211,7 @@ import {
      ============================================================ -->
 
 
-<script id="gnp-v44-realtime-dynamic-import">
+<script id="gnp-v45-realtime-dynamic-import">
 (function(){
   'use strict';
 
@@ -15247,7 +15236,7 @@ import {
 
   const setStatus = (extra) => {
     window.gnpRealtimeStatus = {
-      version: "v44",
+      version: "v45",
       active: false,
       stage: "boot",
       updatedAt: new Date().toISOString(),
@@ -15257,7 +15246,7 @@ import {
   };
 
   setStatus({stage:"script-loaded"});
-  console.log("[GNP v44] realtime script loaded");
+  console.log("[GNP v45] realtime script loaded");
 
   const idOf = x => String(x?.id || "").trim();
   const clone = list => (Array.isArray(list) ? list : []).map(x => ({...x}));
@@ -15295,7 +15284,7 @@ import {
     ai.__v42Rows = clone(rows);
 
     try { ai.render?.(); }
-    catch(error){ console.error("[GNP v44] render 오류:", error); }
+    catch(error){ console.error("[GNP v45] render 오류:", error); }
 
     requestAnimationFrame(() => {
       try { ai.render?.(); } catch(_) {}
@@ -15311,7 +15300,7 @@ import {
       {
         ...clean(row),
         id,
-        syncSource: "GNP-v44",
+        syncSource: "GNP-v45",
         syncUpdatedAt: fs.serverTimestamp()
       },
       {merge:true}
@@ -15329,7 +15318,7 @@ import {
       .catch(() => {})
       .then(task)
       .catch(error => {
-        console.error("[GNP v44]", label, error);
+        console.error("[GNP v45]", label, error);
         throw error;
       });
 
@@ -15409,7 +15398,7 @@ import {
         });
 
         console.log(
-          "[GNP v44] REALTIME 수신:",
+          "[GNP v45] REALTIME 수신:",
           rows.length + "건",
           snapshot.metadata.fromCache ? "(cache)" : "(server)"
         );
@@ -15420,7 +15409,7 @@ import {
           stage:"snapshot-error",
           error:String(error?.message || error)
         });
-        console.error("[GNP v44] onSnapshot 오류:", error);
+        console.error("[GNP v45] onSnapshot 오류:", error);
       }
     );
   }
@@ -15466,7 +15455,7 @@ import {
         lastUpdate:new Date().toISOString()
       });
 
-      console.log("[GNP v44] 초기 Firestore 조회 완료:", rows.length + "건");
+      console.log("[GNP v45] 초기 Firestore 조회 완료:", rows.length + "건");
       return true;
 
     } catch(error) {
@@ -15476,7 +15465,7 @@ import {
         stage:"start-error",
         error:String(error?.message || error)
       });
-      console.error("[GNP v44] 시작 실패:", error);
+      console.error("[GNP v45] 시작 실패:", error);
       return false;
     }
   }
