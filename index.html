@@ -16454,5 +16454,375 @@ import {
   console.log('[GNP v51] 모바일 상단바 정적 복구 활성');
 })();
 </script>
+
+
+<!-- ============================================================
+     GNP v52 FINAL - 회원 ID 삭제 + 결재 대기 알림
+     1) 관리자 회원 삭제: Cloud Function 우선, 미배포 시 Firestore 프로필 직접 삭제
+        - users/{ID}, users/{firebaseUid}, legacyId/id/firebaseUid 일치 문서 모두 제거
+        - Firestore 프로필이 없어지므로 앱 로그인 즉시 차단
+     2) 상단 결재 알림: 현재 로그인 사용자가 실제로 결재 가능한 문건만 실시간 집계
+        - 반장/조장: 소속팀 미결재 문건
+        - 팀장: 소속팀에서 반장/조장 결재 완료 후 본인 결재 대기 문건
+        - HSE/지정 결재자: 기존 최종 결재 로직과 동일한 단계
+     - 기존 안전제안/결재/삭제/사진/모바일 상단바 로직은 변경하지 않음
+     ============================================================ -->
+<style id="gnp-v52-approval-notify-style">
+  .gnp-v52-notify-btn{
+    position:relative; width:38px; height:38px; min-width:38px; min-height:38px;
+    display:inline-flex; align-items:center; justify-content:center;
+    border:1px solid #e2e8f0; border-radius:11px; background:#fff; color:#475569;
+    cursor:pointer; box-shadow:0 1px 3px rgba(15,23,42,.06);
+    -webkit-tap-highlight-color:transparent;
+  }
+  .gnp-v52-notify-btn:hover{background:#f8fafc;color:#0f172a;}
+  .gnp-v52-notify-btn i{font-size:16px;}
+  .gnp-v52-notify-badge{
+    display:none; position:absolute; top:-6px; right:-6px; min-width:19px; height:19px;
+    padding:0 5px; align-items:center; justify-content:center;
+    border:2px solid #fff; border-radius:999px; background:#dc2626; color:#fff;
+    font-size:10px; line-height:1; font-weight:900;
+  }
+  .gnp-v52-notify-badge.show{display:flex;}
+  #gnp-v52-notify-panel{
+    display:none; position:fixed; top:62px; right:66px; z-index:12050;
+    width:min(380px,calc(100vw - 24px)); max-height:min(520px,70vh); overflow:hidden;
+    border:1px solid #dbe3ee; border-radius:16px; background:#fff;
+    box-shadow:0 18px 50px rgba(15,23,42,.20);
+  }
+  #gnp-v52-notify-panel.open{display:block;}
+  .gnp-v52-panel-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e2e8f0;background:#f8fafc;}
+  .gnp-v52-panel-title{font-size:14px;font-weight:900;color:#0f172a;}
+  .gnp-v52-panel-count{font-size:11px;font-weight:800;color:#2563eb;}
+  #gnp-v52-notify-list{max-height:430px;overflow-y:auto;padding:8px;}
+  .gnp-v52-notify-empty{padding:28px 16px;text-align:center;font-size:12px;font-weight:700;color:#94a3b8;}
+  .gnp-v52-notify-item{width:100%;display:block;text-align:left;padding:11px 12px;border:0;border-bottom:1px solid #f1f5f9;border-radius:10px;background:#fff;cursor:pointer;}
+  .gnp-v52-notify-item:hover{background:#f8fafc;}
+  .gnp-v52-notify-item:last-child{border-bottom:0;}
+  .gnp-v52-notify-stage{font-size:10px;font-weight:900;color:#047857;margin-bottom:4px;}
+  .gnp-v52-notify-main{font-size:12px;line-height:1.45;font-weight:800;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .gnp-v52-notify-meta{font-size:10px;line-height:1.4;color:#94a3b8;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  #gnp-v52-toast{
+    display:none; position:fixed; top:72px; right:18px; z-index:13000;
+    max-width:min(360px,calc(100vw - 28px)); padding:12px 14px;
+    border:1px solid #bbf7d0; border-radius:13px; background:#f0fdf4; color:#166534;
+    box-shadow:0 12px 30px rgba(15,23,42,.16); font-size:12px; line-height:1.45; font-weight:800;
+  }
+  #gnp-v52-toast.show{display:block;animation:gnpV52ToastIn .18s ease-out;}
+  @keyframes gnpV52ToastIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+  #gnp-v52-notify-mobile{display:none;}
+  @media(max-width:768px){
+    #gnp-v52-notify-desktop{display:none!important;}
+    #gnp-v52-notify-mobile{display:inline-flex!important;margin-right:7px!important;}
+    #gnp-mobile-profile-v51{max-width:calc(100vw - 122px)!important;}
+    #gnp-v52-notify-panel{top:58px;right:8px;width:calc(100vw - 16px);max-height:68vh;}
+    #gnp-v52-toast{top:66px;right:8px;max-width:calc(100vw - 16px);}
+  }
+  @media(min-width:769px){#gnp-v52-notify-desktop{display:inline-flex!important;}}
+</style>
+
+<script id="gnp-v52-approval-notify-script">
+(function(){
+  'use strict';
+
+  function getApp(){
+    try{ if(typeof app!=='undefined' && app) return app; }catch(_){}
+    return window.app || null;
+  }
+
+  const HSE_IDS=new Set(['박종수','신제우']);
+  const PART_LEADER='이정숙';
+  const FINAL_LEADER='박신환';
+  const FOREMAN_ROLES=new Set(['반장','조장']);
+  let installed=false;
+  let lastUserId='';
+  let lastCount=-1;
+  let firstForUser=true;
+  let toastTimer=null;
+
+  function roleOf(u){
+    u=u||{};
+    const id=String(u.id||'');
+    const raw=String(u.role||'');
+    if(HSE_IDS.has(id) || id==='admin' || raw==='MASTER' || raw==='ADMIN') return 'HSE';
+    if(id===PART_LEADER) return '파트장';
+    if(id===FINAL_LEADER) return '팀장';
+    return raw || '반원';
+  }
+
+  function sameTeam(item,u){
+    u=u||{};
+    const id=String(u.id||'');
+    const role=roleOf(u);
+    if(HSE_IDS.has(id) || id==='admin' || role==='HSE' || id===PART_LEADER || id===FINAL_LEADER) return true;
+    if(!(FOREMAN_ROLES.has(role) || role==='팀장')) return false;
+    const ut=String(u.team||'').trim();
+    const it=String(item?.team||'').trim();
+    if(!ut || !it || ut==='미지정' || it==='미지정') return false;
+    return ut===it;
+  }
+
+  function stageFor(item,u){
+    const a=item?.approvals||{};
+    const id=String(u?.id||'');
+    const role=roleOf(u);
+    if(HSE_IDS.has(id) || id==='admin' || role==='HSE') return a.hse ? '' : 'hse';
+    if(id===PART_LEADER) return a.hse && !a.partLeader ? 'partLeader' : '';
+    if(id===FINAL_LEADER) return a.partLeader && !a.hseTeamLeader ? 'hseTeamLeader' : '';
+    if(FOREMAN_ROLES.has(role)) return a.foreman ? '' : 'foreman';
+    if(role==='팀장') return a.foreman && !a.teamLeader ? 'teamLeader' : '';
+    return '';
+  }
+
+  function stageLabel(st){
+    return {foreman:'반장 검토/결재',teamLeader:'팀장 검토/결재',hse:'HSE 검토/결재',partLeader:'파트장 검토/결재',hseTeamLeader:'최종 검토/결재'}[st] || '검토/결재';
+  }
+
+  function pendingItems(){
+    const a=getApp();
+    const u=a?.auth?.currentUser;
+    if(!a?.ai1 || !u?.id) return [];
+    if(localStorage.getItem('gnp_ai1_approval_mode')==='false') return [];
+    let rows=[];
+    try{ rows=a.ai1.getData?.() || []; }catch(_){ rows=[]; }
+    return (Array.isArray(rows)?rows:[])
+      .map(item=>({item,stage:stageFor(item,u)}))
+      .filter(x=>x.stage && sameTeam(x.item,u))
+      .sort((x,y)=>{
+        const ad=String(x.item?.date||x.item?.createdAt||'');
+        const bd=String(y.item?.date||y.item?.createdAt||'');
+        return bd.localeCompare(ad);
+      });
+  }
+
+  function makeButton(id){
+    let b=document.getElementById(id);
+    if(b) return b;
+    b=document.createElement('button');
+    b.type='button'; b.id=id; b.className='gnp-v52-notify-btn';
+    b.setAttribute('aria-label','결재 알림'); b.setAttribute('title','결재 알림');
+    b.innerHTML='<i class="fas fa-bell"></i><span class="gnp-v52-notify-badge">0</span>';
+    b.addEventListener('click',function(e){ e.stopPropagation(); togglePanel(); });
+    return b;
+  }
+
+  function ensureUI(){
+    const a=getApp();
+    if(!a) return false;
+
+    const header=document.querySelector('#main-body > header');
+    const desktopHost=header?.querySelector(':scope > div:last-child');
+    if(desktopHost && !document.getElementById('gnp-v52-notify-desktop')){
+      desktopHost.insertBefore(makeButton('gnp-v52-notify-desktop'),desktopHost.firstChild);
+    }
+
+    const mobileToolbar=document.getElementById('gnp-mobile-toolbar-v51');
+    const mobileProfile=document.getElementById('gnp-mobile-profile-v51');
+    if(mobileToolbar && mobileProfile && !document.getElementById('gnp-v52-notify-mobile')){
+      mobileToolbar.insertBefore(makeButton('gnp-v52-notify-mobile'),mobileProfile);
+    }
+
+    if(!document.getElementById('gnp-v52-notify-panel')){
+      const panel=document.createElement('div');
+      panel.id='gnp-v52-notify-panel';
+      panel.innerHTML='<div class="gnp-v52-panel-head"><span class="gnp-v52-panel-title"><i class="fas fa-bell mr-2"></i>결재 알림</span><span id="gnp-v52-panel-count" class="gnp-v52-panel-count">0건</span></div><div id="gnp-v52-notify-list"></div>';
+      document.body.appendChild(panel);
+    }
+
+    if(!document.getElementById('gnp-v52-toast')){
+      const toast=document.createElement('div'); toast.id='gnp-v52-toast'; document.body.appendChild(toast);
+    }
+    return true;
+  }
+
+  function setBadges(count){
+    document.querySelectorAll('.gnp-v52-notify-badge').forEach(b=>{
+      b.textContent=count>99?'99+':String(count);
+      b.classList.toggle('show',count>0);
+    });
+  }
+
+  function esc(v){
+    return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  }
+
+  function renderPanel(pending){
+    const count=document.getElementById('gnp-v52-panel-count');
+    const list=document.getElementById('gnp-v52-notify-list');
+    if(count) count.textContent=`${pending.length}건`;
+    if(!list) return;
+    if(!pending.length){
+      list.innerHTML='<div class="gnp-v52-notify-empty"><i class="fas fa-circle-check mr-1"></i>현재 검토·결재 대기 문건이 없습니다.</div>';
+      return;
+    }
+    list.innerHTML=pending.map(({item,stage})=>{
+      const id=esc(item?.id||'');
+      const main=esc(item?.current || item?.location || item?.measure || '안전제안');
+      const meta=esc(`${item?.team||'미지정'} · ${item?.author||item?.authorName||'작성자 미상'} · ${item?.date||''}`);
+      return `<button type="button" class="gnp-v52-notify-item" data-gnp-v52-id="${id}"><div class="gnp-v52-notify-stage">${esc(stageLabel(stage))} 필요</div><div class="gnp-v52-notify-main">${main}</div><div class="gnp-v52-notify-meta">${meta}</div></button>`;
+    }).join('');
+    list.querySelectorAll('[data-gnp-v52-id]').forEach(btn=>{
+      btn.addEventListener('click',()=>openProposal(btn.getAttribute('data-gnp-v52-id')));
+    });
+  }
+
+  function showToast(count){
+    const toast=document.getElementById('gnp-v52-toast');
+    if(!toast || count<=0) return;
+    toast.innerHTML=`<i class="fas fa-bell mr-1"></i> 검토 또는 결재가 필요한 안전제안이 <b>${count}건</b> 있습니다.`;
+    toast.classList.add('show');
+    if(toastTimer) clearTimeout(toastTimer);
+    toastTimer=setTimeout(()=>toast.classList.remove('show'),4200);
+  }
+
+  function update(){
+    if(!ensureUI()) return;
+    const a=getApp();
+    const userId=String(a?.auth?.currentUser?.id||'');
+    if(userId!==lastUserId){
+      lastUserId=userId; lastCount=-1; firstForUser=true;
+      document.getElementById('gnp-v52-notify-panel')?.classList.remove('open');
+    }
+    const pending=pendingItems();
+    const count=pending.length;
+    setBadges(count); renderPanel(pending);
+    if(userId && count>0 && (firstForUser || (lastCount>=0 && count>lastCount))) showToast(count);
+    if(userId) firstForUser=false;
+    lastCount=count;
+  }
+
+  function togglePanel(){
+    update();
+    const p=document.getElementById('gnp-v52-notify-panel');
+    if(p) p.classList.toggle('open');
+  }
+
+  function openProposal(id){
+    const a=getApp();
+    document.getElementById('gnp-v52-notify-panel')?.classList.remove('open');
+    try{ a?.router?.go?.('AI1','안전제안'); }catch(_){}
+    setTimeout(()=>{
+      try{ a?.ai1?.showMeasure?.(id); }catch(e){ console.warn('[GNP v52] 알림 문건 열기 실패',e); }
+    },120);
+  }
+
+  function install(){
+    const a=getApp();
+    if(!a?.ai1) return false;
+    ensureUI();
+    if(!installed){
+      installed=true;
+      const baseRender=typeof a.ai1.render==='function' ? a.ai1.render.bind(a.ai1) : null;
+      if(baseRender){
+        const wrapped=function(){
+          const result=baseRender.apply(this,arguments);
+          setTimeout(update,0);
+          return result;
+        };
+        wrapped.__gnpV52Notify=true;
+        a.ai1.render=wrapped;
+      }
+      document.addEventListener('click',function(e){
+        const p=document.getElementById('gnp-v52-notify-panel');
+        if(!p?.classList.contains('open')) return;
+        if(e.target?.closest?.('#gnp-v52-notify-panel,.gnp-v52-notify-btn')) return;
+        p.classList.remove('open');
+      });
+      document.addEventListener('visibilitychange',()=>{ if(!document.hidden) update(); });
+      window.addEventListener('resize',update,{passive:true});
+    }
+    update();
+    return true;
+  }
+
+  let tries=0;
+  const boot=setInterval(()=>{ if(install() || ++tries>300) clearInterval(boot); },100);
+  setInterval(()=>{ try{update();}catch(_){} },1000);
+  window.gnpApprovalNotifyV52={update,pendingItems,openProposal};
+  console.log('[GNP v52] 결재 대기 알림 기능 로드');
+})();
+</script>
+
+<script type="module" id="gnp-v52-member-delete-script">
+import { collection, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+
+(function(){
+  'use strict';
+  function getApp(){
+    try{ if(typeof app!=='undefined' && app) return app; }catch(_){}
+    return window.app || null;
+  }
+  const isRoot=a=>String(a?.auth?.currentUser?.id||'')==='admin';
+
+  async function deleteProfileDocs(targetId,target){
+    const db=window.gnpFirebase?.db;
+    if(!db) throw new Error('Firestore가 아직 연결되지 않았습니다.');
+    const targetUid=String(target?.firebaseUid||'').trim();
+    const snap=await getDocs(collection(db,'users'));
+    const matches=snap.docs.filter(d=>{
+      const x=d.data()||{};
+      const values=[d.id,x.legacyId,x.id,x.name,x.firebaseUid].map(v=>String(v||'').trim()).filter(Boolean);
+      return values.includes(targetId) || (!!targetUid && values.includes(targetUid));
+    });
+    if(!matches.length) return 0;
+    await Promise.all(matches.map(d=>deleteDoc(d.ref)));
+    return matches.length;
+  }
+
+  async function removeMember(id){
+    const a=getApp();
+    if(!a?.db || !a?.auth) return alert('사용자 관리 기능이 아직 준비되지 않았습니다.');
+    if(!isRoot(a)) return alert('회원 삭제는 전체 관리자(admin)만 가능합니다.');
+    const targetId=String(id||'').trim();
+    if(!targetId || targetId==='admin') return;
+    const target=(a.db.getUsers?.()||[]).find(u=>String(u?.id||u?.legacyId||'').trim()===targetId) || {id:targetId,name:targetId};
+    if(!confirm(`'${target.name||targetId}' (${targetId}) 계정을 삭제하시겠습니까?\n\n삭제 즉시 회원 목록에서 제거되고 해당 ID의 앱 로그인이 차단됩니다.`)) return;
+
+    let authDeleted=false;
+    let callableError='';
+    try{
+      if(typeof window.gnpFirebase?.deleteMemberAccount==='function'){
+        const r=await window.gnpFirebase.deleteMemberAccount(targetId);
+        if(r?.ok!==false) authDeleted=true;
+      }
+    }catch(e){
+      callableError=String(e?.message||e||'');
+      console.warn('[GNP v52] 서버 Auth 삭제 미사용, Firestore 직접 삭제로 전환:',e);
+    }
+
+    try{
+      const deletedDocs=await deleteProfileDocs(targetId,target);
+      // 현재 권한 화면에서 즉시 행을 제거. Firestore onSnapshot이 이후 실제 메모리도 동기화합니다.
+      try{ document.getElementById(`spr-team-${CSS.escape(targetId)}`)?.closest('tr')?.remove(); }catch(_){}
+      try{ window.gnpApprovalNotifyV52?.update?.(); }catch(_){}
+
+      if(authDeleted){
+        alert(`회원 삭제가 완료되었습니다.\n\n${target.name||targetId} (${targetId})\nFirebase Authentication 및 회원 프로필 삭제 완료`);
+      }else{
+        alert(`회원 ID 삭제가 완료되었습니다.\n\n${target.name||targetId} (${targetId})\n삭제된 회원 프로필: ${deletedDocs}개\n해당 ID는 이제 앱에 로그인할 수 없습니다.\n\n※ Firebase Authentication 원본 계정은 서버 삭제 함수가 배포되지 않은 경우 남아 있을 수 있습니다.`);
+      }
+      console.log('[GNP v52] 회원 삭제 완료',{targetId,deletedDocs,authDeleted,callableError});
+      return true;
+    }catch(error){
+      console.error('[GNP v52] 회원 삭제 실패',error);
+      alert(`회원 삭제에 실패했습니다.\n\n${error?.message||error}`);
+      return false;
+    }
+  }
+
+  function install(){
+    const a=getApp();
+    if(!a?.db || !window.safetyRole) return false;
+    window.safetyRole.deleteUser=removeMember;
+    window.gnpDeleteMemberV52=removeMember;
+    return true;
+  }
+
+  let n=0;
+  const timer=setInterval(()=>{ if(install() && ++n>=80) clearInterval(timer); else if(++n>300) clearInterval(timer); },100);
+  console.log('[GNP v52] 회원 ID 삭제 최종 브리지 로드');
+})();
+</script>
+
 </body>
 </html>
