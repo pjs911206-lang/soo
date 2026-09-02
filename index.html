@@ -6574,7 +6574,7 @@ const app = {
 };
 </script>
 
-<!-- 첨부 사진 편집 기능: 동그라미·네모·세모·선 -->
+<!-- 첨부 사진 편집 기능: 원형·삼각형·사각형·선·텍스트 -->
 <style>
   #ai1-photo-editor-modal { position:fixed; inset:0; z-index:99999; display:none; background:rgba(15,23,42,.72); padding:18px; }
   #ai1-photo-editor-modal.open { display:flex; align-items:center; justify-content:center; }
@@ -6589,19 +6589,22 @@ const app = {
     <div class="px-5 py-4 border-b flex items-center justify-between gap-3">
       <div>
         <h4 class="font-black text-slate-800"><i class="fas fa-pen-ruler text-blue-600 mr-2"></i>첨부 사진 편집</h4>
-        <p class="text-xs text-slate-500 mt-1">위험 지점에 동그라미, 네모, 세모 또는 선을 표시할 수 있습니다.</p>
+        <p class="text-xs text-slate-500 mt-1">위험 지점에 원형, 삼각형, 사각형, 선 또는 텍스트를 표시할 수 있습니다.</p>
       </div>
       <button type="button" id="ai1-editor-close" class="w-9 h-9 rounded-lg border text-slate-500 hover:bg-slate-50" aria-label="닫기"><i class="fas fa-xmark"></i></button>
     </div>
     <div class="px-5 py-3 border-b bg-slate-50 flex flex-wrap gap-2 items-center">
-      <span class="text-xs font-bold text-slate-600 mr-1">도형</span>
-      <button type="button" class="ai1-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="circle"><i class="far fa-circle mr-1"></i>동그라미</button>
-      <button type="button" class="ai1-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="rect"><i class="far fa-square mr-1"></i>네모</button>
-      <button type="button" class="ai1-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="triangle"><i class="fas fa-play mr-1"></i>세모</button>
+      <span class="text-xs font-bold text-slate-600 mr-1">표시</span>
+      <button type="button" class="ai1-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="circle"><i class="far fa-circle mr-1"></i>원형</button>
+      <button type="button" class="ai1-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="triangle"><i class="fas fa-play mr-1"></i>삼각형</button>
+      <button type="button" class="ai1-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="rect"><i class="far fa-square mr-1"></i>사각형</button>
       <button type="button" class="ai1-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="line"><i class="fas fa-minus mr-1"></i>선</button>
+      <button type="button" class="ai1-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="text"><i class="fas fa-font mr-1"></i>텍스트</button>
       <span class="w-px h-6 bg-slate-300 mx-1"></span>
+      <label class="text-xs font-bold text-slate-600">입력 <input id="ai1-editor-text" type="text" maxlength="60" placeholder="사진에 넣을 텍스트" class="ml-1 h-8 w-40 rounded border px-2 text-xs font-medium text-slate-700"></label>
       <label class="text-xs font-bold text-slate-600">색상 <input id="ai1-editor-color" type="color" value="#ef4444" class="ml-1 align-middle h-8 w-10 p-0 border rounded"></label>
-      <label class="text-xs font-bold text-slate-600">굵기 <input id="ai1-editor-width" type="range" min="2" max="14" value="5" class="align-middle w-24"></label>
+      <label class="text-xs font-bold text-slate-600">굵기 <input id="ai1-editor-width" type="range" min="2" max="14" value="5" class="align-middle w-20"></label>
+      <label class="text-xs font-bold text-slate-600">글자크기 <input id="ai1-editor-font-size" type="range" min="16" max="80" value="32" class="align-middle w-20"></label>
       <button type="button" id="ai1-editor-undo" class="ml-auto px-3 py-1.5 border rounded-lg text-xs font-bold text-slate-700 hover:bg-white"><i class="fas fa-rotate-left mr-1"></i>되돌리기</button>
       <button type="button" id="ai1-editor-reset" class="px-3 py-1.5 border rounded-lg text-xs font-bold text-slate-700 hover:bg-white">초기화</button>
     </div>
@@ -6618,7 +6621,7 @@ const app = {
   const editor = {
     modal: document.getElementById('ai1-photo-editor-modal'),
     canvas: document.getElementById('ai1-editor-canvas'),
-    ctx: null, tool: 'circle', color: '#ef4444', width: 5,
+    ctx: null, tool: 'circle', color: '#ef4444', width: 5, fontSize: 32,
     basePixels: null, history: [], drawing: false, start: null, drawStartPixels: null,
 
     init() {
@@ -6630,6 +6633,7 @@ const app = {
       document.querySelector('[data-tool="circle"]').classList.add('ai1-tool-active');
       document.getElementById('ai1-editor-color').addEventListener('input', e => this.color = e.target.value);
       document.getElementById('ai1-editor-width').addEventListener('input', e => this.width = Number(e.target.value));
+      document.getElementById('ai1-editor-font-size').addEventListener('input', e => this.fontSize = Number(e.target.value));
       document.getElementById('ai1-editor-close').addEventListener('click', () => this.close());
       document.getElementById('ai1-editor-cancel').addEventListener('click', () => this.close());
       document.getElementById('ai1-editor-undo').addEventListener('click', () => this.undo());
@@ -6699,7 +6703,26 @@ const app = {
     down(e) {
       if (!this.canvas.width || !this.canvas.height) return;
       e.preventDefault();
-      this.start = this.point(e);
+      const point = this.point(e);
+
+      if (this.tool === 'text') {
+        const value = String(document.getElementById('ai1-editor-text')?.value || '').trim();
+        if (!value) {
+          alert('먼저 사진에 넣을 텍스트를 입력해 주세요.');
+          return;
+        }
+        const previous = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.save();
+        this.ctx.fillStyle = this.color;
+        this.ctx.textBaseline = 'top';
+        this.ctx.font = `700 ${this.fontSize}px Arial, "Malgun Gothic", "Noto Sans KR", sans-serif`;
+        this.ctx.fillText(value, point.x, point.y);
+        this.ctx.restore();
+        this.history.push(previous);
+        return;
+      }
+
+      this.start = point;
       this.drawStartPixels = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
       this.drawing = true;
       this.canvas.setPointerCapture?.(e.pointerId);
@@ -6815,19 +6838,22 @@ const app = {
     <div class="px-5 py-4 border-b flex items-center justify-between gap-3">
       <div>
         <h4 class="font-black text-slate-800"><i class="fas fa-pen-ruler text-emerald-600 mr-2"></i>개선 사진 편집</h4>
-        <p class="text-xs text-slate-500 mt-1">개선 후 사진에 동그라미, 네모, 세모 또는 선을 표시할 수 있습니다.</p>
+        <p class="text-xs text-slate-500 mt-1">개선 후 사진에 원형, 삼각형, 사각형, 선 또는 텍스트를 표시할 수 있습니다.</p>
       </div>
       <button type="button" id="ai1-improvement-editor-close" class="w-9 h-9 rounded-lg border text-slate-500 hover:bg-slate-50" aria-label="닫기"><i class="fas fa-xmark"></i></button>
     </div>
     <div class="px-5 py-3 border-b bg-slate-50 flex flex-wrap gap-2 items-center">
-      <span class="text-xs font-bold text-slate-600 mr-1">도형</span>
-      <button type="button" class="ai1-improvement-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="circle"><i class="far fa-circle mr-1"></i>동그라미</button>
-      <button type="button" class="ai1-improvement-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="rect"><i class="far fa-square mr-1"></i>네모</button>
-      <button type="button" class="ai1-improvement-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="triangle"><i class="fas fa-play mr-1"></i>세모</button>
+      <span class="text-xs font-bold text-slate-600 mr-1">표시</span>
+      <button type="button" class="ai1-improvement-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="circle"><i class="far fa-circle mr-1"></i>원형</button>
+      <button type="button" class="ai1-improvement-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="triangle"><i class="fas fa-play mr-1"></i>삼각형</button>
+      <button type="button" class="ai1-improvement-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="rect"><i class="far fa-square mr-1"></i>사각형</button>
       <button type="button" class="ai1-improvement-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="line"><i class="fas fa-minus mr-1"></i>선</button>
+      <button type="button" class="ai1-improvement-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="text"><i class="fas fa-font mr-1"></i>텍스트</button>
       <span class="w-px h-6 bg-slate-300 mx-1"></span>
+      <label class="text-xs font-bold text-slate-600">입력 <input id="ai1-improvement-editor-text" type="text" maxlength="60" placeholder="사진에 넣을 텍스트" class="ml-1 h-8 w-40 rounded border px-2 text-xs font-medium text-slate-700"></label>
       <label class="text-xs font-bold text-slate-600">색상 <input id="ai1-improvement-editor-color" type="color" value="#ef4444" class="ml-1 align-middle h-8 w-10 p-0 border rounded"></label>
-      <label class="text-xs font-bold text-slate-600">굵기 <input id="ai1-improvement-editor-width" type="range" min="2" max="14" value="5" class="align-middle w-24"></label>
+      <label class="text-xs font-bold text-slate-600">굵기 <input id="ai1-improvement-editor-width" type="range" min="2" max="14" value="5" class="align-middle w-20"></label>
+      <label class="text-xs font-bold text-slate-600">글자크기 <input id="ai1-improvement-editor-font-size" type="range" min="16" max="80" value="32" class="align-middle w-20"></label>
       <button type="button" id="ai1-improvement-editor-undo" class="ml-auto px-3 py-1.5 border rounded-lg text-xs font-bold text-slate-700 hover:bg-white"><i class="fas fa-rotate-left mr-1"></i>되돌리기</button>
       <button type="button" id="ai1-improvement-editor-reset" class="px-3 py-1.5 border rounded-lg text-xs font-bold text-slate-700 hover:bg-white">초기화</button>
     </div>
@@ -6865,7 +6891,7 @@ const app = {
   const editor = {
     modal: document.getElementById('ai1-improvement-editor-modal'),
     canvas: document.getElementById('ai1-improvement-editor-canvas'),
-    ctx: null, tool: 'circle', color: '#ef4444', width: 5,
+    ctx: null, tool: 'circle', color: '#ef4444', width: 5, fontSize: 32,
     basePixels: null, history: [], drawing: false, start: null, drawStartPixels: null,
 
     init() {
@@ -6877,6 +6903,7 @@ const app = {
       document.querySelector('#ai1-improvement-editor-modal [data-tool="circle"]').classList.add('ai1-tool-active');
       document.getElementById('ai1-improvement-editor-color').addEventListener('input', e => this.color=e.target.value);
       document.getElementById('ai1-improvement-editor-width').addEventListener('input', e => this.width=Number(e.target.value));
+      document.getElementById('ai1-improvement-editor-font-size').addEventListener('input', e => this.fontSize=Number(e.target.value));
       ['ai1-improvement-editor-close','ai1-improvement-editor-cancel'].forEach(id => document.getElementById(id).addEventListener('click',()=>this.close()));
       document.getElementById('ai1-improvement-editor-undo').addEventListener('click',()=>this.undo());
       document.getElementById('ai1-improvement-editor-reset').addEventListener('click',()=>this.reset());
@@ -6910,7 +6937,33 @@ const app = {
     },
     close() { this.modal.classList.remove('open'); this.modal.setAttribute('aria-hidden','true'); this.drawing=false; },
     point(e) { const r=this.canvas.getBoundingClientRect(); return {x:(e.clientX-r.left)*this.canvas.width/r.width,y:(e.clientY-r.top)*this.canvas.height/r.height}; },
-    down(e) { if(!this.canvas.width) return; e.preventDefault(); this.start=this.point(e); this.drawStartPixels=this.ctx.getImageData(0,0,this.canvas.width,this.canvas.height); this.drawing=true; this.canvas.setPointerCapture?.(e.pointerId); },
+    down(e) {
+      if(!this.canvas.width) return;
+      e.preventDefault();
+      const point=this.point(e);
+
+      if(this.tool==='text') {
+        const value=String(document.getElementById('ai1-improvement-editor-text')?.value||'').trim();
+        if(!value) {
+          alert('먼저 사진에 넣을 텍스트를 입력해 주세요.');
+          return;
+        }
+        const previous=this.ctx.getImageData(0,0,this.canvas.width,this.canvas.height);
+        this.ctx.save();
+        this.ctx.fillStyle=this.color;
+        this.ctx.textBaseline='top';
+        this.ctx.font=`700 ${this.fontSize}px Arial, "Malgun Gothic", "Noto Sans KR", sans-serif`;
+        this.ctx.fillText(value,point.x,point.y);
+        this.ctx.restore();
+        this.history.push(previous);
+        return;
+      }
+
+      this.start=point;
+      this.drawStartPixels=this.ctx.getImageData(0,0,this.canvas.width,this.canvas.height);
+      this.drawing=true;
+      this.canvas.setPointerCapture?.(e.pointerId);
+    },
     move(e) { if(!this.drawing) return; e.preventDefault(); this.ctx.putImageData(this.drawStartPixels,0,0); this.shape(this.start,this.point(e)); },
     up(e) { if(!this.drawing) return; e.preventDefault(); this.ctx.putImageData(this.drawStartPixels,0,0); this.shape(this.start,this.point(e)); this.history.push(this.drawStartPixels); this.drawing=false; this.drawStartPixels=null; this.canvas.releasePointerCapture?.(e.pointerId); },
     cancel() { if(this.drawing && this.drawStartPixels) this.ctx.putImageData(this.drawStartPixels,0,0); this.drawing=false; this.drawStartPixels=null; },
@@ -17153,6 +17206,96 @@ import {
     try { proposalUnsub?.(); } catch(_){}
     try { if(guardTimer) clearInterval(guardTimer); } catch(_){}
   });
+})();
+</script>
+
+
+<!-- GNP v54: 전체보기 브라우저 뒤로가기 보호 -->
+<script id="gnp-v54-fullview-back-guard">
+(function(){
+  'use strict';
+
+  function getApp(){
+    try { if(typeof app !== 'undefined' && app) return app; } catch(_){}
+    return window.app || null;
+  }
+
+  function isOpen(){
+    const modal=document.getElementById('ai1-measure-modal');
+    return !!modal && !modal.classList.contains('hidden') && modal.classList.contains('flex');
+  }
+
+  function returnToManage(){
+    try {
+      if(window.safetyProposalUI?.open) {
+        window.safetyProposalUI.open('manage');
+      } else {
+        const a=getApp();
+        a?.router?.go?.('AI1','안전제안');
+      }
+    } catch(error) {
+      console.warn('[GNP v54] 관리 페이지 복귀 실패:', error);
+    }
+  }
+
+  function install(){
+    const a=getApp();
+    if(!a?.ai1?.showMeasure || !a?.ai1?.closeMeasureModal) return false;
+    if(a.ai1.__gnpV54BackGuard) return true;
+
+    const baseShow=a.ai1.showMeasure.bind(a.ai1);
+    const baseClose=a.ai1.closeMeasureModal.bind(a.ai1);
+    let closingFromPop=false;
+
+    a.ai1.showMeasure=function(id){
+      const wasOpen=isOpen();
+      const result=baseShow.apply(this,arguments);
+
+      // 최초로 전체보기를 연 순간에만 동일 URL의 history entry를 한 단계 추가합니다.
+      // 이후 상태변경/결재 등으로 전체보기를 다시 그릴 때는 중복 entry를 만들지 않습니다.
+      if(!wasOpen && isOpen()){
+        try {
+          history.pushState(
+            { ...(history.state || {}), gnpAi1FullViewV54:true, proposalId:String(id) },
+            '',
+            location.href
+          );
+        } catch(error) {
+          console.warn('[GNP v54] 전체보기 history 등록 실패:', error);
+        }
+      }
+      return result;
+    };
+
+    a.ai1.closeMeasureModal=function(){
+      // X 버튼/배경 클릭도 브라우저 뒤로가기와 같은 경로로 닫아 history를 깔끔하게 유지합니다.
+      if(!closingFromPop && isOpen() && history.state?.gnpAi1FullViewV54){
+        try {
+          history.back();
+          return;
+        } catch(_){}
+      }
+      return baseClose.apply(this,arguments);
+    };
+
+    window.addEventListener('popstate',function(){
+      // 전체보기에서 휴대폰/브라우저 뒤로가기를 누르면 사이트를 나가지 않고 모달만 닫습니다.
+      if(isOpen()){
+        closingFromPop=true;
+        try { baseClose(); } finally { closingFromPop=false; }
+        returnToManage();
+      }
+    });
+
+    a.ai1.__gnpV54BackGuard=true;
+    console.log('[GNP v54] 전체보기 뒤로가기 보호 ACTIVE');
+    return true;
+  }
+
+  let tries=0;
+  const timer=setInterval(()=>{
+    if(install() || ++tries>300) clearInterval(timer);
+  },100);
 })();
 </script>
 
