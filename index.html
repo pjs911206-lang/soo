@@ -14847,42 +14847,14 @@ import {
     if(bootstrapDone) return;
     bootstrapDone=true;
 
-    let local=[];
-    try {
-      const raw=localStorage.getItem(PROPOSAL_KEY);
-      const parsed=JSON.parse(raw||'[]');
-      local=Array.isArray(parsed) ? parsed.filter(x=>pid(x)) : [];
-    } catch(_) {}
-
-    if(local.length < 47) return;
-
-    const cloud=await getDocs(collection(getDb(), COLLECTION));
-
     /*
-     * The user selected the current mobile's 47-row set as the baseline.
-     * Only a cloud deficit triggers the one-time baseline copy.
+     * v53 ANTI-RESURRECTION
+     * 과거 모바일/PC의 localStorage 안전제안 목록을 Firestore로 복원하던
+     * 1회성 baseline migration을 영구 종료합니다.
+     * Firestore만 안전제안의 원본이며, 구형 로컬 캐시는 즉시 제거합니다.
      */
-    if(cloud.size >= local.length) return;
-
-    for(const row of local) {
-      await writeProposal(row);
-    }
-
-    // v45 SAFETY: 로컬 목록을 기준으로 클라우드의 추가 문서를 절대 삭제하지 않는다.
-    // 클라우드 + 로컬을 ID 기준으로 병합한다.
-    const merged = new Map();
-    cloud.docs.forEach(item => {
-      const data=item.data()||{};
-      const id=String(data.id||item.id);
-      if(id) merged.set(id,{...data,id});
-    });
-    local.forEach(row => {
-      const id=pid(row);
-      if(id) merged.set(id,{...(merged.get(id)||{}),...row,id});
-    });
-
-    proposalRows=[...merged.values()];
-    redraw();
+    try { localStorage.removeItem(PROPOSAL_KEY); } catch(_) {}
+    return;
   }
 
   function startRealtime() {
@@ -16160,6 +16132,24 @@ import {
         throw new Error('Firestore에서 해당 안전제안 문서를 찾을 수 없습니다. ID: ' + value);
       }
 
+      // v53: 삭제된 ID가 오래된 PC/모바일 캐시에서 다시 업로드되지 못하도록
+      // Firestore에 영구 삭제표식(tombstone)을 먼저 기록합니다.
+      const tombstoneRef = fs.doc(window.gnpFirebase.db, 'safetyProposalTombstones', value);
+      await fs.setDoc(
+        tombstoneRef,
+        {
+          id:value,
+          deleted:true,
+          deletedBy:me.name || me.id || '',
+          deletedById:me.id || '',
+          deletedRole:roleOf(me),
+          deletedTeam:me.team || '',
+          deletedAt:fs.serverTimestamp(),
+          source:'GNP-v53-explicit-delete'
+        },
+        {merge:true}
+      );
+
       // 목록 saveData를 거치지 않고 선택한 문서 1건만 직접 삭제
       await fs.deleteDoc(ref);
 
@@ -16821,6 +16811,348 @@ import { collection, getDocs, deleteDoc } from "https://www.gstatic.com/firebase
   let n=0;
   const timer=setInterval(()=>{ if(install() && ++n>=80) clearInterval(timer); else if(++n>300) clearInterval(timer); },100);
   console.log('[GNP v52] 회원 ID 삭제 최종 브리지 로드');
+})();
+</script>
+
+
+<!-- ============================================================
+     GNP v53 - SAFETY PROPOSAL ANTI-RESURRECTION FINAL AUTHORITY
+     목적:
+       1) Firestore safetyProposals 를 유일한 원본으로 고정
+       2) 과거 PC/모바일 localStorage 안전제안 캐시 자동 제거
+       3) 삭제된 제안 ID를 safetyProposalTombstones에 기록
+       4) 다른 PC의 오래된 캐시가 삭제 제안을 재업로드하면 즉시 재삭제
+       5) Firestore Console 등 외부에서 삭제한 경우도 열린 v53 클라이언트가
+          removed 이벤트를 감지하여 tombstone을 자동 생성
+     기존 UI/결재/알림/회원삭제 기능은 변경하지 않음
+     ============================================================ -->
+<script type="module" id="gnp-v53-anti-resurrection-final">
+import {
+  collection,
+  doc,
+  getDocs,
+  onSnapshot,
+  setDoc,
+  deleteDoc,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+
+(function(){
+  'use strict';
+
+  const PROPOSALS = 'safetyProposals';
+  const TOMBSTONES = 'safetyProposalTombstones';
+  const LEGACY_KEY = 'gnp_ai1_proposals';
+
+  const tombstones = new Set();
+  const cleaning = new Set();
+  let started = false;
+  let tombstoneUnsub = null;
+  let proposalUnsub = null;
+  let guardTimer = null;
+
+  const getApp = () => {
+    try { if(typeof app !== 'undefined' && app) return app; } catch(_){}
+    return window.app || null;
+  };
+
+  const db = () => {
+    const value = window.gnpFirebase?.db;
+    if(!value) throw new Error('Firestore DB가 준비되지 않았습니다.');
+    return value;
+  };
+
+  const idOf = row => String(row?.id || '').trim();
+
+  function setStatus(extra){
+    window.gnpAntiResurrectionStatus = {
+      version:'v53',
+      active:false,
+      tombstones:tombstones.size,
+      updatedAt:new Date().toISOString(),
+      ...(window.gnpAntiResurrectionStatus || {}),
+      ...(extra || {})
+    };
+  }
+
+  async function rememberDeleted(id, source='unknown'){
+    const value = String(id || '').trim();
+    if(!value) return false;
+
+    tombstones.add(value);
+    await setDoc(
+      doc(db(), TOMBSTONES, value),
+      {
+        id:value,
+        deleted:true,
+        source:String(source || 'unknown'),
+        deletedAt:serverTimestamp()
+      },
+      {merge:true}
+    );
+    return true;
+  }
+
+  async function purgeProposalId(id, reason='tombstone'){
+    const value = String(id || '').trim();
+    if(!value || cleaning.has(value)) return false;
+    cleaning.add(value);
+    try{
+      await deleteDoc(doc(db(), PROPOSALS, value));
+      console.warn('[GNP v53] 삭제 데이터 재등장 차단:', value, reason);
+      return true;
+    }catch(error){
+      console.error('[GNP v53] 재등장 데이터 삭제 실패:', value, error);
+      return false;
+    }finally{
+      cleaning.delete(value);
+    }
+  }
+
+  async function purgeExistingTombstoned(){
+    const snap = await getDocs(collection(db(), PROPOSALS));
+    const stale = snap.docs
+      .map(d => String(d.data()?.id || d.id))
+      .filter(id => tombstones.has(id));
+
+    for(const id of stale){
+      await purgeProposalId(id, 'startup-tombstone');
+    }
+    return stale.length;
+  }
+
+  function installLegacyStorageGuard(){
+    if(window.__gnpV53LegacyStorageGuard) return;
+    window.__gnpV53LegacyStorageGuard = true;
+
+    /*
+     * v37의 virtual getItem과 관계없이 removeItem은 실제 로컬 키를 제거합니다.
+     * 따라서 이 브라우저에 남아 있던 47/52건 등의 과거 캐시 자체를 지웁니다.
+     */
+    try { localStorage.removeItem(LEGACY_KEY); } catch(_){}
+
+    const storage = Storage.prototype;
+    const previousSet = storage.setItem;
+
+    storage.setItem = function(key, value){
+      if(this === window.localStorage && key === LEGACY_KEY){
+        let rows = [];
+        try{
+          const parsed = JSON.parse(value || '[]');
+          rows = Array.isArray(parsed) ? parsed : [];
+        }catch(_){}
+
+        const safe = rows.filter(row => {
+          const id = idOf(row);
+          return id && !tombstones.has(id);
+        });
+
+        if(safe.length !== rows.length){
+          console.warn(
+            '[GNP v53] 삭제된 안전제안의 localStorage 재저장 차단:',
+            rows.length - safe.length + '건'
+          );
+        }
+        return previousSet.call(this, key, JSON.stringify(safe));
+      }
+      return previousSet.call(this, key, value);
+    };
+  }
+
+  function installAppGuards(){
+    const a = getApp();
+    if(!a?.ai1) return false;
+
+    // getData: tombstone 제안은 어떤 UI에서도 다시 보이지 않도록 마지막 필터.
+    const currentGet = a.ai1.getData;
+    if(typeof currentGet === 'function' && !currentGet.__gnpV53Guard){
+      const baseGet = currentGet.bind(a.ai1);
+      const guardedGet = function(){
+        const list = baseGet();
+        return (Array.isArray(list) ? list : []).filter(row => !tombstones.has(idOf(row)));
+      };
+      guardedGet.__gnpV53Guard = true;
+      a.ai1.getData = guardedGet;
+    }
+
+    // saveData: 오래된 PC가 전체 52건 목록을 들고 있어도 삭제된 ID는 쓰기 대상에서 제거.
+    const currentSave = a.ai1.saveData;
+    if(typeof currentSave === 'function' && !currentSave.__gnpV53Guard){
+      const baseSave = currentSave.bind(a.ai1);
+      const guardedSave = function(rows){
+        const input = Array.isArray(rows) ? rows : [];
+        const safe = input.filter(row => {
+          const id = idOf(row);
+          return id && !tombstones.has(id);
+        });
+        if(safe.length !== input.length){
+          console.warn(
+            '[GNP v53] 삭제 제안 Firestore 재저장 차단:',
+            input.length - safe.length + '건'
+          );
+        }
+        return baseSave(safe);
+      };
+      guardedSave.__gnpV53Guard = true;
+      a.ai1.saveData = guardedSave;
+    }
+
+    // 실제 작성/수정 버튼이 사용하는 직접 Firestore writer도 tombstone ID 재사용 차단.
+    const gf = window.gnpFirebase;
+    const currentWriter = gf?.writeSafetyProposal;
+    if(gf && typeof currentWriter === 'function' && !currentWriter.__gnpV53Guard){
+      const baseWriter = currentWriter.bind(gf);
+      const guardedWriter = async function(row){
+        const id = idOf(row);
+        if(id && tombstones.has(id)){
+          throw new Error('이미 삭제된 안전제안 ID는 다시 저장할 수 없습니다: ' + id);
+        }
+        return baseWriter(row);
+      };
+      guardedWriter.__gnpV53Guard = true;
+      gf.writeSafetyProposal = guardedWriter;
+    }
+
+    return true;
+  }
+
+  function startTombstoneSnapshot(){
+    if(tombstoneUnsub) try{ tombstoneUnsub(); }catch(_){}
+
+    tombstoneUnsub = onSnapshot(
+      collection(db(), TOMBSTONES),
+      snapshot => {
+        tombstones.clear();
+        snapshot.docs.forEach(d => {
+          const id = String(d.data()?.id || d.id).trim();
+          if(id) tombstones.add(id);
+        });
+
+        installAppGuards();
+        purgeExistingTombstoned().catch(error =>
+          console.error('[GNP v53] tombstone 정리 실패:', error)
+        );
+
+        try { getApp()?.ai1?.render?.(); } catch(_){}
+        try { window.gnpApprovalNotifyV52?.update?.(); } catch(_){}
+
+        setStatus({
+          active:true,
+          stage:'tombstone-realtime',
+          tombstones:tombstones.size
+        });
+      },
+      error => {
+        console.error('[GNP v53] tombstone listener 오류:', error);
+        setStatus({active:false, stage:'tombstone-error', error:String(error?.message || error)});
+      }
+    );
+  }
+
+  function startProposalSnapshot(){
+    if(proposalUnsub) try{ proposalUnsub(); }catch(_){}
+
+    let initial = true;
+
+    proposalUnsub = onSnapshot(
+      collection(db(), PROPOSALS),
+      snapshot => {
+        /*
+         * v53가 열린 상태에서 Firestore Console/다른 클라이언트가 삭제한 문서도
+         * removed 이벤트를 tombstone으로 남겨, 제3의 오래된 PC가 다시 살리지 못하게 합니다.
+         * 최초 snapshot의 added 문서에는 적용하지 않습니다.
+         */
+        if(!initial){
+          const removed = snapshot.docChanges().filter(change => change.type === 'removed');
+          removed.forEach(change => {
+            const id = String(change.doc.data()?.id || change.doc.id).trim();
+            if(id && !tombstones.has(id)){
+              rememberDeleted(id, 'firestore-removed-v53').catch(error =>
+                console.error('[GNP v53] 자동 tombstone 기록 실패:', id, error)
+              );
+            }
+          });
+        }
+        initial = false;
+
+        // 삭제된 ID가 오래된 PC에서 다시 setDoc 되면 이 클라이언트가 즉시 재삭제.
+        snapshot.docs.forEach(d => {
+          const id = String(d.data()?.id || d.id).trim();
+          if(id && tombstones.has(id)){
+            purgeProposalId(id, 'resurrected-by-stale-client');
+          }
+        });
+
+        installAppGuards();
+      },
+      error => {
+        console.error('[GNP v53] proposal guard listener 오류:', error);
+        setStatus({active:false, stage:'proposal-guard-error', error:String(error?.message || error)});
+      }
+    );
+  }
+
+  async function start(){
+    if(started) return true;
+    if(!window.gnpFirebase?.db || !getApp()?.ai1) return false;
+
+    started = true;
+    setStatus({active:false, stage:'starting'});
+
+    try{
+      installLegacyStorageGuard();
+
+      // listener를 달기 전에 기존 tombstone을 먼저 읽어 race를 줄입니다.
+      const tombSnap = await getDocs(collection(db(), TOMBSTONES));
+      tombstones.clear();
+      tombSnap.docs.forEach(d => {
+        const id = String(d.data()?.id || d.id).trim();
+        if(id) tombstones.add(id);
+      });
+
+      await purgeExistingTombstoned();
+
+      startTombstoneSnapshot();
+      startProposalSnapshot();
+      installAppGuards();
+
+      // 늦게 로드되는 기존 패치가 getData/saveData를 다시 덮어쓰는 경우 재고정.
+      let ticks = 0;
+      guardTimer = setInterval(() => {
+        installAppGuards();
+        if(++ticks >= 120) clearInterval(guardTimer); // 약 30초
+      }, 250);
+
+      setStatus({
+        active:true,
+        stage:'active',
+        tombstones:tombstones.size,
+        startedAt:new Date().toISOString()
+      });
+
+      console.log('[GNP v53] 삭제 데이터 부활 방지 ACTIVE', {
+        tombstones:tombstones.size
+      });
+      return true;
+    }catch(error){
+      started = false;
+      console.error('[GNP v53] 시작 실패:', error);
+      setStatus({active:false, stage:'start-error', error:String(error?.message || error)});
+      return false;
+    }
+  }
+
+  let tries = 0;
+  const boot = setInterval(async () => {
+    const ok = await start();
+    if(ok || ++tries > 300) clearInterval(boot);
+  }, 100);
+
+  window.addEventListener('beforeunload', () => {
+    try { tombstoneUnsub?.(); } catch(_){}
+    try { proposalUnsub?.(); } catch(_){}
+    try { if(guardTimer) clearInterval(guardTimer); } catch(_){}
+  });
 })();
 </script>
 
