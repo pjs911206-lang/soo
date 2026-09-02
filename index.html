@@ -6589,7 +6589,7 @@ const app = {
     <div class="px-5 py-4 border-b flex items-center justify-between gap-3">
       <div>
         <h4 class="font-black text-slate-800"><i class="fas fa-pen-ruler text-blue-600 mr-2"></i>첨부 사진 편집</h4>
-        <p class="text-xs text-slate-500 mt-1">위험 지점에 원형, 삼각형, 사각형, 선 또는 텍스트를 표시할 수 있습니다.</p>
+        <p class="text-xs text-slate-500 mt-1">위험 지점에 원형, 삼각형, 사각형, 선 또는 텍스트 상자를 표시할 수 있습니다. 텍스트는 Enter로 줄바꿈하고 사진 위를 드래그해 상자 크기를 정하세요.</p>
       </div>
       <button type="button" id="ai1-editor-close" class="w-9 h-9 rounded-lg border text-slate-500 hover:bg-slate-50" aria-label="닫기"><i class="fas fa-xmark"></i></button>
     </div>
@@ -6601,7 +6601,7 @@ const app = {
       <button type="button" class="ai1-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="line"><i class="fas fa-minus mr-1"></i>선</button>
       <button type="button" class="ai1-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="text"><i class="fas fa-font mr-1"></i>텍스트</button>
       <span class="w-px h-6 bg-slate-300 mx-1"></span>
-      <label class="text-xs font-bold text-slate-600">입력 <input id="ai1-editor-text" type="text" maxlength="60" placeholder="사진에 넣을 텍스트" class="ml-1 h-8 w-40 rounded border px-2 text-xs font-medium text-slate-700"></label>
+      <label class="text-xs font-bold text-slate-600 flex items-center gap-1">입력 <textarea id="ai1-editor-text" maxlength="240" rows="2" placeholder="텍스트 입력 · Enter 줄바꿈" class="ml-1 h-14 w-56 resize-y rounded border px-2 py-1 text-xs font-medium leading-4 text-slate-700"></textarea></label>
       <label class="text-xs font-bold text-slate-600">색상 <input id="ai1-editor-color" type="color" value="#ef4444" class="ml-1 align-middle h-8 w-10 p-0 border rounded"></label>
       <label class="text-xs font-bold text-slate-600">굵기 <input id="ai1-editor-width" type="range" min="2" max="14" value="5" class="align-middle w-20"></label>
       <label class="text-xs font-bold text-slate-600">글자크기 <input id="ai1-editor-font-size" type="range" min="16" max="80" value="32" class="align-middle w-20"></label>
@@ -6700,28 +6700,75 @@ const app = {
       };
     },
 
+    textValue() {
+      return String(document.getElementById('ai1-editor-text')?.value || '').replace(/\r\n/g, '\n').trim();
+    },
+
+    normalizeTextBox(a, b) {
+      let x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+      let w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+      if (w < 60) w = Math.min(360, Math.max(180, this.canvas.width - x - 8));
+      if (h < 40) h = Math.min(180, Math.max(this.fontSize * 2.8, this.canvas.height - y - 8));
+      return {x, y, w, h};
+    },
+
+    wrapTextLine(text, maxWidth) {
+      if (!text) return [''];
+      const chars = Array.from(text);
+      const lines = [];
+      let line = '';
+      for (const ch of chars) {
+        const next = line + ch;
+        if (line && this.ctx.measureText(next).width > maxWidth) {
+          lines.push(line.replace(/\s+$/,''));
+          line = ch.replace(/^\s+/, '');
+        } else {
+          line = next;
+        }
+      }
+      lines.push(line);
+      return lines;
+    },
+
+    drawTextBox(a, b) {
+      const value = this.textValue();
+      if (!value) return;
+      const box = this.normalizeTextBox(a, b);
+      const c = this.ctx;
+      const pad = Math.max(8, Math.round(this.fontSize * 0.28));
+      const lineHeight = Math.round(this.fontSize * 1.28);
+      c.save();
+      c.fillStyle = 'rgba(255,255,255,0.88)';
+      c.strokeStyle = this.color;
+      c.lineWidth = Math.max(2, Math.min(this.width, 6));
+      c.fillRect(box.x, box.y, box.w, box.h);
+      c.strokeRect(box.x, box.y, box.w, box.h);
+      c.beginPath();
+      c.rect(box.x + pad, box.y + pad, Math.max(1, box.w - pad * 2), Math.max(1, box.h - pad * 2));
+      c.clip();
+      c.fillStyle = this.color;
+      c.textBaseline = 'top';
+      c.font = `700 ${this.fontSize}px Arial, "Malgun Gothic", "Noto Sans KR", sans-serif`;
+      const maxWidth = Math.max(20, box.w - pad * 2);
+      const lines = [];
+      value.split('\n').forEach(paragraph => lines.push(...this.wrapTextLine(paragraph, maxWidth)));
+      let ty = box.y + pad;
+      for (const line of lines) {
+        if (ty + lineHeight > box.y + box.h - pad + lineHeight * 0.25) break;
+        c.fillText(line, box.x + pad, ty);
+        ty += lineHeight;
+      }
+      c.restore();
+    },
+
     down(e) {
       if (!this.canvas.width || !this.canvas.height) return;
       e.preventDefault();
       const point = this.point(e);
-
-      if (this.tool === 'text') {
-        const value = String(document.getElementById('ai1-editor-text')?.value || '').trim();
-        if (!value) {
-          alert('먼저 사진에 넣을 텍스트를 입력해 주세요.');
-          return;
-        }
-        const previous = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
-        this.ctx.save();
-        this.ctx.fillStyle = this.color;
-        this.ctx.textBaseline = 'top';
-        this.ctx.font = `700 ${this.fontSize}px Arial, "Malgun Gothic", "Noto Sans KR", sans-serif`;
-        this.ctx.fillText(value, point.x, point.y);
-        this.ctx.restore();
-        this.history.push(previous);
+      if (this.tool === 'text' && !this.textValue()) {
+        alert('먼저 사진에 넣을 텍스트를 입력해 주세요. Enter로 줄바꿈할 수 있습니다.');
         return;
       }
-
       this.start = point;
       this.drawStartPixels = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
       this.drawing = true;
@@ -6732,14 +6779,16 @@ const app = {
       if (!this.drawing) return;
       e.preventDefault();
       this.ctx.putImageData(this.drawStartPixels, 0, 0);
-      this.shape(this.start, this.point(e));
+      if (this.tool === 'text') this.drawTextBox(this.start, this.point(e));
+      else this.shape(this.start, this.point(e));
     },
 
     up(e) {
       if (!this.drawing) return;
       e.preventDefault();
       this.ctx.putImageData(this.drawStartPixels, 0, 0);
-      this.shape(this.start, this.point(e));
+      if (this.tool === 'text') this.drawTextBox(this.start, this.point(e));
+      else this.shape(this.start, this.point(e));
       this.history.push(this.drawStartPixels);
       this.drawing = false;
       this.drawStartPixels = null;
@@ -6838,7 +6887,7 @@ const app = {
     <div class="px-5 py-4 border-b flex items-center justify-between gap-3">
       <div>
         <h4 class="font-black text-slate-800"><i class="fas fa-pen-ruler text-emerald-600 mr-2"></i>개선 사진 편집</h4>
-        <p class="text-xs text-slate-500 mt-1">개선 후 사진에 원형, 삼각형, 사각형, 선 또는 텍스트를 표시할 수 있습니다.</p>
+        <p class="text-xs text-slate-500 mt-1">개선 후 사진에 원형, 삼각형, 사각형, 선 또는 텍스트 상자를 표시할 수 있습니다. 텍스트는 Enter로 줄바꿈하고 사진 위를 드래그해 상자 크기를 정하세요.</p>
       </div>
       <button type="button" id="ai1-improvement-editor-close" class="w-9 h-9 rounded-lg border text-slate-500 hover:bg-slate-50" aria-label="닫기"><i class="fas fa-xmark"></i></button>
     </div>
@@ -6850,7 +6899,7 @@ const app = {
       <button type="button" class="ai1-improvement-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="line"><i class="fas fa-minus mr-1"></i>선</button>
       <button type="button" class="ai1-improvement-editor-tool px-3 py-1.5 border rounded-lg text-xs font-bold" data-tool="text"><i class="fas fa-font mr-1"></i>텍스트</button>
       <span class="w-px h-6 bg-slate-300 mx-1"></span>
-      <label class="text-xs font-bold text-slate-600">입력 <input id="ai1-improvement-editor-text" type="text" maxlength="60" placeholder="사진에 넣을 텍스트" class="ml-1 h-8 w-40 rounded border px-2 text-xs font-medium text-slate-700"></label>
+      <label class="text-xs font-bold text-slate-600 flex items-center gap-1">입력 <textarea id="ai1-improvement-editor-text" maxlength="240" rows="2" placeholder="텍스트 입력 · Enter 줄바꿈" class="ml-1 h-14 w-56 resize-y rounded border px-2 py-1 text-xs font-medium leading-4 text-slate-700"></textarea></label>
       <label class="text-xs font-bold text-slate-600">색상 <input id="ai1-improvement-editor-color" type="color" value="#ef4444" class="ml-1 align-middle h-8 w-10 p-0 border rounded"></label>
       <label class="text-xs font-bold text-slate-600">굵기 <input id="ai1-improvement-editor-width" type="range" min="2" max="14" value="5" class="align-middle w-20"></label>
       <label class="text-xs font-bold text-slate-600">글자크기 <input id="ai1-improvement-editor-font-size" type="range" min="16" max="80" value="32" class="align-middle w-20"></label>
@@ -6937,35 +6986,41 @@ const app = {
     },
     close() { this.modal.classList.remove('open'); this.modal.setAttribute('aria-hidden','true'); this.drawing=false; },
     point(e) { const r=this.canvas.getBoundingClientRect(); return {x:(e.clientX-r.left)*this.canvas.width/r.width,y:(e.clientY-r.top)*this.canvas.height/r.height}; },
-    down(e) {
-      if(!this.canvas.width) return;
-      e.preventDefault();
-      const point=this.point(e);
-
-      if(this.tool==='text') {
-        const value=String(document.getElementById('ai1-improvement-editor-text')?.value||'').trim();
-        if(!value) {
-          alert('먼저 사진에 넣을 텍스트를 입력해 주세요.');
-          return;
-        }
-        const previous=this.ctx.getImageData(0,0,this.canvas.width,this.canvas.height);
-        this.ctx.save();
-        this.ctx.fillStyle=this.color;
-        this.ctx.textBaseline='top';
-        this.ctx.font=`700 ${this.fontSize}px Arial, "Malgun Gothic", "Noto Sans KR", sans-serif`;
-        this.ctx.fillText(value,point.x,point.y);
-        this.ctx.restore();
-        this.history.push(previous);
-        return;
-      }
-
-      this.start=point;
-      this.drawStartPixels=this.ctx.getImageData(0,0,this.canvas.width,this.canvas.height);
-      this.drawing=true;
-      this.canvas.setPointerCapture?.(e.pointerId);
+    textValue() { return String(document.getElementById('ai1-improvement-editor-text')?.value||'').replace(/\r\n/g,'\n').trim(); },
+    normalizeTextBox(a,b) {
+      let x=Math.min(a.x,b.x), y=Math.min(a.y,b.y), w=Math.abs(b.x-a.x), h=Math.abs(b.y-a.y);
+      if(w<60) w=Math.min(360,Math.max(180,this.canvas.width-x-8));
+      if(h<40) h=Math.min(180,Math.max(this.fontSize*2.8,this.canvas.height-y-8));
+      return {x,y,w,h};
     },
-    move(e) { if(!this.drawing) return; e.preventDefault(); this.ctx.putImageData(this.drawStartPixels,0,0); this.shape(this.start,this.point(e)); },
-    up(e) { if(!this.drawing) return; e.preventDefault(); this.ctx.putImageData(this.drawStartPixels,0,0); this.shape(this.start,this.point(e)); this.history.push(this.drawStartPixels); this.drawing=false; this.drawStartPixels=null; this.canvas.releasePointerCapture?.(e.pointerId); },
+    wrapTextLine(text,maxWidth) {
+      if(!text) return [''];
+      const lines=[]; let line='';
+      for(const ch of Array.from(text)) {
+        const next=line+ch;
+        if(line && this.ctx.measureText(next).width>maxWidth) {lines.push(line.replace(/\s+$/,'')); line=ch.replace(/^\s+/,'');}
+        else line=next;
+      }
+      lines.push(line); return lines;
+    },
+    drawTextBox(a,b) {
+      const value=this.textValue(); if(!value) return;
+      const box=this.normalizeTextBox(a,b), c=this.ctx, pad=Math.max(8,Math.round(this.fontSize*.28)), lineHeight=Math.round(this.fontSize*1.28);
+      c.save(); c.fillStyle='rgba(255,255,255,0.88)'; c.strokeStyle=this.color; c.lineWidth=Math.max(2,Math.min(this.width,6));
+      c.fillRect(box.x,box.y,box.w,box.h); c.strokeRect(box.x,box.y,box.w,box.h);
+      c.beginPath(); c.rect(box.x+pad,box.y+pad,Math.max(1,box.w-pad*2),Math.max(1,box.h-pad*2)); c.clip();
+      c.fillStyle=this.color; c.textBaseline='top'; c.font=`700 ${this.fontSize}px Arial, "Malgun Gothic", "Noto Sans KR", sans-serif`;
+      const maxWidth=Math.max(20,box.w-pad*2), lines=[]; value.split('\n').forEach(p=>lines.push(...this.wrapTextLine(p,maxWidth)));
+      let ty=box.y+pad; for(const line of lines){if(ty+lineHeight>box.y+box.h-pad+lineHeight*.25) break; c.fillText(line,box.x+pad,ty); ty+=lineHeight;}
+      c.restore();
+    },
+    down(e) {
+      if(!this.canvas.width) return; e.preventDefault(); const point=this.point(e);
+      if(this.tool==='text' && !this.textValue()) {alert('먼저 사진에 넣을 텍스트를 입력해 주세요. Enter로 줄바꿈할 수 있습니다.'); return;}
+      this.start=point; this.drawStartPixels=this.ctx.getImageData(0,0,this.canvas.width,this.canvas.height); this.drawing=true; this.canvas.setPointerCapture?.(e.pointerId);
+    },
+    move(e) { if(!this.drawing) return; e.preventDefault(); this.ctx.putImageData(this.drawStartPixels,0,0); if(this.tool==='text') this.drawTextBox(this.start,this.point(e)); else this.shape(this.start,this.point(e)); },
+    up(e) { if(!this.drawing) return; e.preventDefault(); this.ctx.putImageData(this.drawStartPixels,0,0); if(this.tool==='text') this.drawTextBox(this.start,this.point(e)); else this.shape(this.start,this.point(e)); this.history.push(this.drawStartPixels); this.drawing=false; this.drawStartPixels=null; this.canvas.releasePointerCapture?.(e.pointerId); },
     cancel() { if(this.drawing && this.drawStartPixels) this.ctx.putImageData(this.drawStartPixels,0,0); this.drawing=false; this.drawStartPixels=null; },
     shape(a,b) {
       const c=this.ctx,w=b.x-a.x,h=b.y-a.y; c.save(); c.strokeStyle=this.color;c.lineWidth=this.width;c.lineCap='round';c.lineJoin='round';c.beginPath();
@@ -17604,5 +17659,12 @@ import {
 })();
 </script>
 
+
+<!-- GNP v56: 사진 편집 텍스트 상자/다중행 입력 개선
+     - 텍스트 도구: 클릭 스탬프 방식 -> 드래그 텍스트 상자 방식
+     - textarea Enter 줄바꿈 + 상자 폭 기준 자동 줄바꿈
+     - 개선 전/개선 후 사진 편집기 모두 적용
+     - 기존 동기화/권한/알림/삭제/대시보드 로직은 변경하지 않음
+-->
 </body>
 </html>
