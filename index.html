@@ -8303,8 +8303,18 @@ const app = {
   function makeChart(id,key,config){
     const canvas=$(id);
     if(!canvas || typeof Chart==='undefined') return;
+    /* v55: 다른 대시보드 렌더러가 같은 canvas를 먼저 사용했더라도
+       현재 canvas에 붙어 있는 Chart 인스턴스를 먼저 제거해 충돌을 막습니다. */
+    try {
+      const attached = (typeof Chart.getChart === 'function') ? Chart.getChart(canvas) : null;
+      if(attached) attached.destroy();
+    } catch(_) {}
     destroyChart(key);
-    charts[key]=new Chart(canvas.getContext('2d'),config);
+    try {
+      charts[key]=new Chart(canvas.getContext('2d'),config);
+    } catch(error) {
+      console.warn('[GNP v55] dashboard chart recreate failed:', id, error);
+    }
   }
   function refreshDashboard(){
     const list = (typeof ai.getData==='function' ? ai.getData() : []) || [];
@@ -17296,6 +17306,301 @@ import {
   const timer=setInterval(()=>{
     if(install() || ++tries>300) clearInterval(timer);
   },100);
+})();
+</script>
+
+
+
+<!-- ============================================================
+     GNP v55 FINAL STABILITY PATCH
+     1) Firestore 저장 직급을 우측 상단 표시의 단일 기준으로 고정
+        - 반원/차장 등 서로 다른 패치가 번갈아 표시하는 현상 차단
+     2) 안전제안 관리 페이지는 소속 팀 기준으로 조회 제한
+        - admin/HSE/임원 및 기존 전사 결재 특수계정은 전체 조회 유지
+     3) 대시보드 공장별/위험유형 Chart 충돌 방지 보강
+        - 실제 데이터 원본(app.ai1.getData)은 변경하지 않음
+     ============================================================ -->
+<script id="gnp-v55-role-team-dashboard-final">
+(function(){
+  'use strict';
+
+  const ALL_ROLES = new Set([
+    '반원','반장','조장','팀장','파트장','HSE',
+    '사원','대리','과장','차장','부장','임원'
+  ]);
+  const HSE_IDS = new Set(['박종수','신제우']);
+  const EXEC_IDS = new Set(['양영훈','채일식','박경원','공동화']);
+  const PART_LEADER = '이정숙';
+  const FINAL_LEADER = '박신환';
+
+  function getApp(){
+    try { if(typeof app !== 'undefined' && app) return app; } catch(_) {}
+    return window.app || null;
+  }
+
+  function text(v){ return String(v == null ? '' : v).trim(); }
+
+  function aliases(u){
+    if(!u) return [];
+    return [u.id,u.legacyId,u.name,u.firebaseUid,u.uid,u.email]
+      .map(text).filter(Boolean);
+  }
+
+  function sameUser(a,b){
+    const set = new Set(aliases(a));
+    return aliases(b).some(v => set.has(v));
+  }
+
+  function canonicalRole(u){
+    const id = text(u?.id || u?.legacyId || u?.name);
+    const role = text(u?.role);
+    if(id === 'admin' || HSE_IDS.has(id) || role === 'MASTER' || role === 'ADMIN') return 'HSE';
+    if(EXEC_IDS.has(id)) return '임원';
+    if(id === PART_LEADER) return '파트장';
+    if(id === FINAL_LEADER) return '팀장';
+    return ALL_ROLES.has(role) ? role : '반원';
+  }
+
+  function sharedUsers(a){
+    try {
+      const rows = a?.db?.getUsers?.();
+      return Array.isArray(rows) ? rows : [];
+    } catch(_) { return []; }
+  }
+
+  function freshUser(a, me){
+    const rows = sharedUsers(a);
+    if(!me || !rows.length) return null;
+    return rows.find(u => sameUser(u,me)) || null;
+  }
+
+  function syncHeader(){
+    const a = getApp();
+    const me = a?.auth?.currentUser;
+    if(!a?.auth || !me) return;
+
+    const fresh = freshUser(a, me);
+    const merged = fresh ? {
+      ...me,
+      ...fresh,
+      id: text(fresh.legacyId || fresh.id || me.id),
+      legacyId: text(fresh.legacyId || fresh.id || me.legacyId || me.id),
+      name: text(fresh.name || me.name || fresh.id || me.id),
+      team: text(fresh.team || me.team || '미지정') || '미지정',
+      role: canonicalRole(fresh)
+    } : {
+      ...me,
+      role: canonicalRole(me),
+      team: text(me.team || '미지정') || '미지정'
+    };
+
+    a.auth.currentUser = merged;
+    const roleValue = canonicalRole(merged);
+    const nameValue = text(merged.name || merged.id);
+    const teamValue = text(merged.team || '미지정') || '미지정';
+
+    const info = document.getElementById('user-info');
+    const role = document.getElementById('user-role');
+    const avatar = document.getElementById('user-avatar');
+    const mobileInfo = document.getElementById('gnp-mobile-user-info-v51');
+    const mobileRole = document.getElementById('gnp-mobile-user-role-v51');
+    const mobileAvatar = document.getElementById('gnp-mobile-user-avatar-v51');
+
+    const infoText = `${nameValue} (${teamValue})`;
+    if(info && info.textContent !== infoText) info.textContent = infoText;
+    if(role && role.textContent !== roleValue) role.textContent = roleValue;
+    if(avatar && avatar.textContent !== nameValue.charAt(0)) avatar.textContent = nameValue.charAt(0);
+    if(mobileInfo && mobileInfo.textContent !== infoText) mobileInfo.textContent = infoText;
+    if(mobileRole && mobileRole.textContent !== roleValue) mobileRole.textContent = roleValue;
+    if(mobileAvatar && mobileAvatar.textContent !== nameValue.charAt(0)) mobileAvatar.textContent = nameValue.charAt(0);
+  }
+
+  function installRoleAuthority(){
+    const a = getApp();
+    if(!a?.auth || !a?.db) return false;
+
+    /* 구형 정규화기가 차장/과장/부장/임원 등을 반원으로 내리는 것을 마지막 단계에서 차단합니다.
+       저장 동작은 하지 않고 현재 공유 프로필 값을 그대로 보존합니다. */
+    if(!a.auth.normalizeUsers?.__gnpV55RoleAuthority){
+      const normalize = function(items){
+        return (Array.isArray(items) ? items : []).map(row => {
+          if(!row) return row;
+          const id = text(row.id || row.legacyId || row.name);
+          return {
+            ...row,
+            id,
+            legacyId:text(row.legacyId || id),
+            name:text(row.name || id),
+            team:text(row.team || '미지정') || '미지정',
+            role:canonicalRole(row),
+            modules:Array.isArray(row.modules) ? row.modules : []
+          };
+        }).filter(Boolean);
+      };
+      normalize.__gnpV55RoleAuthority = true;
+      a.auth.normalizeUsers = normalize;
+    }
+
+    syncHeader();
+    return true;
+  }
+
+  function canViewAll(me){
+    const id = text(me?.id || me?.legacyId || me?.name);
+    const role = canonicalRole(me || {});
+    return id === 'admin' || HSE_IDS.has(id) || EXEC_IDS.has(id) ||
+      role === 'HSE' || role === '임원' || id === PART_LEADER || id === FINAL_LEADER;
+  }
+
+  function isOwn(item, me){
+    const ids = new Set([me?.id,me?.legacyId,me?.name].map(text).filter(Boolean));
+    return [item?.authorId,item?.author,item?.writer].map(text).some(v => v && ids.has(v));
+  }
+
+  function visibleToCurrentTeam(item){
+    const a = getApp();
+    const me = a?.auth?.currentUser || {};
+    if(canViewAll(me)) return true;
+    const myTeam = text(me.team);
+    const itemTeam = text(item?.team);
+    if(myTeam && myTeam !== '미지정') return itemTeam === myTeam;
+    /* 팀 미지정 계정은 다른 팀 자료를 노출하지 않고 본인 작성 건만 표시합니다. */
+    return isOwn(item, me);
+  }
+
+  function installTeamScope(){
+    const a = getApp();
+    if(!a?.ai1 || typeof a.ai1.getFilteredData !== 'function') return false;
+    if(a.ai1.getFilteredData.__gnpV55TeamScope) return true;
+
+    const baseFiltered = a.ai1.getFilteredData.bind(a.ai1);
+    const scoped = function(){
+      const rows = baseFiltered();
+      return (Array.isArray(rows) ? rows : []).filter(visibleToCurrentTeam);
+    };
+    scoped.__gnpV55TeamScope = true;
+    a.ai1.getFilteredData = scoped;
+
+    /* 목록에서 우회해 다른 팀 문건 ID를 직접 호출하는 경우에도 전체보기/수정을 제한합니다. */
+    if(typeof a.ai1.showMeasure === 'function' && !a.ai1.showMeasure.__gnpV55TeamScope){
+      const baseShow = a.ai1.showMeasure.bind(a.ai1);
+      const wrappedShow = function(id){
+        const item = (a.ai1.getData?.() || []).find(x => text(x?.id) === text(id));
+        if(item && !visibleToCurrentTeam(item)) return alert('본인 소속 팀의 안전제안만 조회할 수 있습니다.');
+        return baseShow.apply(this,arguments);
+      };
+      wrappedShow.__gnpV55TeamScope = true;
+      a.ai1.showMeasure = wrappedShow;
+    }
+
+    if(typeof a.ai1.edit === 'function' && !a.ai1.edit.__gnpV55TeamScope){
+      const baseEdit = a.ai1.edit.bind(a.ai1);
+      const wrappedEdit = function(id){
+        const item = (a.ai1.getData?.() || []).find(x => text(x?.id) === text(id));
+        if(item && !visibleToCurrentTeam(item)) return alert('본인 소속 팀의 안전제안만 조회할 수 있습니다.');
+        return baseEdit.apply(this,arguments);
+      };
+      wrappedEdit.__gnpV55TeamScope = true;
+      a.ai1.edit = wrappedEdit;
+    }
+
+    return true;
+  }
+
+  function installRenderCount(){
+    const a = getApp();
+    if(!a?.ai1 || typeof a.ai1.render !== 'function') return false;
+    if(a.ai1.render.__gnpV55RenderGuard) return true;
+
+    const baseRender = a.ai1.render.bind(a.ai1);
+    const wrapped = function(){
+      let result;
+      try {
+        result = baseRender.apply(this,arguments);
+      } catch(error) {
+        /* 과거 중복 Chart 렌더러가 남긴 canvas 충돌은 목록 기능까지 멈추지 않도록 격리합니다. */
+        const msg = String(error?.message || error || '');
+        if(/Canvas is already in use|Chart.*destroyed|chart/i.test(msg)) {
+          console.warn('[GNP v55] legacy dashboard chart conflict isolated:', error);
+        } else {
+          throw error;
+        }
+      }
+
+      requestAnimationFrame(() => {
+        try {
+          const visible = a.ai1.getFilteredData?.() || [];
+          const count = document.getElementById('ai1-count');
+          if(count) count.textContent = `${visible.length}건`;
+        } catch(_) {}
+        try { window.safetyProposalUI?.refresh?.(); } catch(error) {
+          console.warn('[GNP v55] dashboard refresh:', error);
+        }
+      });
+      return result;
+    };
+    wrapped.__gnpV55RenderGuard = true;
+    a.ai1.render = wrapped;
+    return true;
+  }
+
+  function refreshDashboardNow(){
+    try { window.safetyProposalUI?.refresh?.(); } catch(error) {
+      console.warn('[GNP v55] dashboard initial refresh:', error);
+    }
+  }
+
+  let dashboardBootRefreshed = false;
+
+  function install(){
+    const a = getApp();
+    if(!a?.auth || !a?.db || !a?.ai1) return false;
+    installRoleAuthority();
+    installTeamScope();
+    installRenderCount();
+    syncHeader();
+    if(!dashboardBootRefreshed){
+      dashboardBootRefreshed = true;
+      requestAnimationFrame(refreshDashboardNow);
+    }
+
+    window.gnpV55Status = {
+      active:true,
+      version:'v55',
+      role:canonicalRole(a.auth.currentUser || {}),
+      team:text(a.auth.currentUser?.team || ''),
+      teamScope:true,
+      dashboardChartGuard:true,
+      updatedAt:new Date().toISOString()
+    };
+    return true;
+  }
+
+  let tries = 0;
+  let installedTicks = 0;
+  const boot = setInterval(() => {
+    tries += 1;
+    const ok = install();
+    if(ok) installedTicks += 1;
+    if(installedTicks >= 120 || tries > 300) clearInterval(boot); // 늦게 설치되는 기존 브리지까지 약 30초 재고정
+  }, 250);
+
+  /* 다른 실시간 패치가 헤더 텍스트를 다시 쓰더라도 같은 프레임에 Firestore 기준값으로 복구합니다. */
+  const observer = new MutationObserver(() => queueMicrotask(syncHeader));
+  const observeHeader = () => {
+    const desktop = document.querySelector('#main-body > header');
+    const mobile = document.getElementById('gnp-mobile-toolbar-v51');
+    if(desktop) observer.observe(desktop,{childList:true,subtree:true,characterData:true});
+    if(mobile) observer.observe(mobile,{childList:true,subtree:true,characterData:true});
+  };
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded',observeHeader,{once:true});
+  else observeHeader();
+
+  setInterval(syncHeader, 1000);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ syncHeader(); refreshDashboardNow(); } });
+  window.addEventListener('focus',()=>{ syncHeader(); refreshDashboardNow(); });
+
+  console.log('[GNP v55] 직급 표시 / 팀별 안전제안 조회 / 대시보드 Chart 안정화 패치 로드');
 })();
 </script>
 
