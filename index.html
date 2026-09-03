@@ -1585,7 +1585,7 @@ const app = {
 
             let admin = users.find(u => u.id === 'admin');
             if(!admin) {
-                users.push({id:'admin', pw:'1234', name:'관리자', team:masterTeam, role:'MASTER', modules: []});
+                users.push({id:'admin', name:'관리자', team:masterTeam, role:'MASTER', modules: []});
                 changed = true;
                 admin = users.find(u => u.id === 'admin');
             }
@@ -1611,15 +1611,7 @@ const app = {
             return users;
         },
         login: () => {
-            const id = document.getElementById('login-id').value;
-            const pw = document.getElementById('login-pw').value;
-            const users = app.auth.normalizeUsers(app.db.getUsers());
-
-            const user = users.find(u => u.id === id && u.pw === pw);
-            if(user) {
-                app.auth.currentUser = user;
-                app.ui.initSystem();
-            } else { alert('인증 정보가 올바르지 않습니다.'); }
+            alert('Firebase 보안 로그인을 초기화하는 중입니다. 잠시 후 다시 로그인해 주세요.');
         },
         signup: () => {
             const name = document.getElementById('reg-name').value.trim();
@@ -1636,10 +1628,7 @@ const app = {
             const users = app.auth.normalizeUsers(app.db.getUsers());
             if(users.find(u=>u.id===id)) return alert('이미 등록된 성명입니다.');
             
-            users.push({id, name, pw, team, role:'USER', modules: []});
-            app.db.saveUsers(users);
-            alert('가입 신청이 완료되었습니다. 로그인해 주세요.');
-            app.ui.toggleAuth(false);
+            alert('Firebase 보안 회원가입을 초기화하는 중입니다. 잠시 후 다시 시도해 주세요.');
         }
     },
 
@@ -9039,7 +9028,8 @@ const app = {
 (function () {
   if (typeof app === 'undefined' || !app.db || !app.auth || !app.ui || !app.router) return;
 
-  const EMPLOYEES = [{"id":"가재국","name":"가재국","pw":"3720"},{"id":"강동우","name":"강동우","pw":"7622"},{"id":"강동현","name":"강동현","pw":"2629"},{"id":"강재민","name":"강재민","pw":"8036"},{"id":"경민석","name":"경민석","pw":"3190"},{"id":"고재철","name":"고재철","pw":"7449"},{"id":"공동화","name":"공동화","pw":"9986"},{"id":"구연우","name":"구연우","pw":"5813"},{"id":"권구영","name":"권구영","pw":"1906"},{"id":"권대영","name":"권대영","pw":"1644"},{"id":"권순광","name":"권순광","pw":"1296"},{"id":"권영송","name":"권영송","pw":"7128"},{"id":"권오혁","name":"권오혁","pw":"2845"},{"id":"권윤한","name":"권윤한","pw":"5221"},{"id":"권태복","name":"권태복","pw":"4093"},{"id":"김경민","name":"김경민","pw":"1245"},{"id":"김경진","name":"김경진","pw":"4331"},{"id":"김경호","name":"김경호","pw":"0677"},{"id":"김기용","name":"김기용","pw":"5148"},{"id":"김기혁","name":"김기혁","pw":"2110"},{"id":"김기현","name":"김기현","pw":"4089"},{"id":"김기현2","name":"김기현2","pw":"9430"},{"id":"김민건","name":"김민건","pw":"4132"},{"id":"김민희","name":"김민희","pw":"0312"},{"id":"김범준","name":"김범준","pw":"9406"},{"id":"김병찬","name":"김병찬","pw":"2333"},{"id":"김상수","name":"김상수","pw":"7818"},{"id":"김연일","name":"김연일","pw":"5012"},{"id":"김영철","name":"김영철","pw":"9417"},{"id":"김응수","name":"김응수","pw":"7390"},{"id":"김의진","name":"김의진","pw":"4192"},{"id":"김정한","name":"김정한","pw":"4585"},{"id":"김중석","name":"김중석","pw":"4936"},{"id":"김창범","name":"김창범","pw":"7488"},{"id":"김창훈","name":"김창훈","pw":"3001"},{"id":"김태영","name":"김태영","pw":"0250"},{"id":"김태훈","name":"김태훈","pw":"5165"},{"id":"김학윤","name":"김학윤","pw":"1133"},{"id":"김희규","name":"김희규","pw":"7727"},{"id":"나대주","name":"나대주","pw":"1582"},{"id":"류봉우","name":"류봉우","pw":"7671"},{"id":"문종완","name":"문종완","pw":"7264"},{"id":"문형덕","name":"문형덕","pw":"2098"},{"id":"박건균","name":"박건균","pw":"8843"},{"id":"박경원","name":"박경원","pw":"4283"},{"id":"박광호","name":"박광호","pw":"2880"},{"id":"박기동","name":"박기동","pw":"2422"},{"id":"박상우","name":"박상우","pw":"8333"},{"id":"박성봉","name":"박성봉","pw":"7037"},{"id":"박성철","name":"박성철","pw":"1322"},{"id":"박신환","name":"박신환","pw":"5781"},{"id":"박용태","name":"박용태","pw":"2805"},{"id":"박종수","name":"박종수","pw":"3966"},{"id":"박진용","name":"박진용","pw":"5005"},{"id":"박창남","name":"박창남","pw":"2312"},{"id":"박한별","name":"박한별","pw":"2385"},{"id":"박현숙","name":"박현숙","pw":"0659"},{"id":"박희철","name":"박희철","pw":"9288"},{"id":"방석원","name":"방석원","pw":"0982"},{"id":"배은하","name":"배은하","pw":"0297"},{"id":"배종성","name":"배종성","pw":"1228"},{"id":"백승천","name":"백승천","pw":"7707"},{"id":"서정우","name":"서정우","pw":"5135"},{"id":"서진성","name":"서진성","pw":"2095"},{"id":"서현덕","name":"서현덕","pw":"9172"},{"id":"성경훈","name":"성경훈","pw":"4196"},{"id":"성충훈","name":"성충훈","pw":"3442"},{"id":"송성태","name":"송성태","pw":"7610"},{"id":"송영석","name":"송영석","pw":"3280"},{"id":"송준혁","name":"송준혁","pw":"4321"},{"id":"신성민","name":"신성민","pw":"8093"},{"id":"신용기","name":"신용기","pw":"0229"},{"id":"신재환","name":"신재환","pw":"0103"},{"id":"신제우","name":"신제우","pw":"2219"},{"id":"신현중","name":"신현중","pw":"6935"},{"id":"신호문","name":"신호문","pw":"2732"},{"id":"심대동","name":"심대동","pw":"1064"},{"id":"심준섭","name":"심준섭","pw":"9284"},{"id":"안광운","name":"안광운","pw":"2577"},{"id":"안선호","name":"안선호","pw":"7658"},{"id":"안준기","name":"안준기","pw":"8151"},{"id":"안효섭","name":"안효섭","pw":"7891"},{"id":"양수근","name":"양수근","pw":"0623"},{"id":"양승호","name":"양승호","pw":"1544"},{"id":"양영훈","name":"양영훈","pw":"7507"},{"id":"양희성","name":"양희성","pw":"9948"},{"id":"엄용민","name":"엄용민","pw":"6001"},{"id":"여선엽","name":"여선엽","pw":"2486"},{"id":"오지민","name":"오지민","pw":"9210"},{"id":"용훈","name":"용훈","pw":"5376"},{"id":"우제황","name":"우제황","pw":"2646"},{"id":"원세연","name":"원세연","pw":"5822"},{"id":"유성열","name":"유성열","pw":"6709"},{"id":"유승열","name":"유승열","pw":"7074"},{"id":"유지성","name":"유지성","pw":"9484"},{"id":"윤경수","name":"윤경수","pw":"9338"},{"id":"윤경철","name":"윤경철","pw":"2424"},{"id":"윤종영","name":"윤종영","pw":"0878"},{"id":"윤종혁","name":"윤종혁","pw":"8577"},{"id":"윤형근","name":"윤형근","pw":"5137"},{"id":"이건희","name":"이건희","pw":"8373"},{"id":"이광호","name":"이광호","pw":"0043"},{"id":"이광희","name":"이광희","pw":"7788"},{"id":"이동섭","name":"이동섭","pw":"6924"},{"id":"이동우","name":"이동우","pw":"3736"},{"id":"이명열","name":"이명열","pw":"3383"},{"id":"이상언","name":"이상언","pw":"0623"},{"id":"이상용","name":"이상용","pw":"6550"},{"id":"이수용","name":"이수용","pw":"3355"},{"id":"이승환","name":"이승환","pw":"0838"},{"id":"이연중","name":"이연중","pw":"9304"},{"id":"이영재","name":"이영재","pw":"4365"},{"id":"이원석","name":"이원석","pw":"0130"},{"id":"이원태","name":"이원태","pw":"4035"},{"id":"이윤화","name":"이윤화","pw":"4414"},{"id":"이은호","name":"이은호","pw":"3919"},{"id":"이장환","name":"이장환","pw":"0955"},{"id":"이재규","name":"이재규","pw":"4985"},{"id":"이재욱","name":"이재욱","pw":"5282"},{"id":"이재준","name":"이재준","pw":"2844"},{"id":"이재찬","name":"이재찬","pw":"0918"},{"id":"이정숙","name":"이정숙","pw":"2531"},{"id":"이정호","name":"이정호","pw":"8009"},{"id":"이종실","name":"이종실","pw":"3030"},{"id":"이창석","name":"이창석","pw":"2351"},{"id":"이채일","name":"이채일","pw":"8932"},{"id":"이철진","name":"이철진","pw":"4435"},{"id":"이태훈","name":"이태훈","pw":"3046"},{"id":"이현근","name":"이현근","pw":"5753"},{"id":"이현수","name":"이현수","pw":"4430"},{"id":"이혜정","name":"이혜정","pw":"7891"},{"id":"임경택","name":"임경택","pw":"7380"},{"id":"임동욱","name":"임동욱","pw":"0774"},{"id":"임두호","name":"임두호","pw":"2019"},{"id":"임성주","name":"임성주","pw":"0205"},{"id":"임종칠","name":"임종칠","pw":"5787"},{"id":"임헌진","name":"임헌진","pw":"4101"},{"id":"장용진","name":"장용진","pw":"5023"},{"id":"장정현","name":"장정현","pw":"8000"},{"id":"장칠우","name":"장칠우","pw":"0935"},{"id":"장현석","name":"장현석","pw":"8532"},{"id":"장훈길","name":"장훈길","pw":"7107"},{"id":"전성면","name":"전성면","pw":"4539"},{"id":"전영수","name":"전영수","pw":"0784"},{"id":"전인근","name":"전인근","pw":"6000"},{"id":"전호단","name":"전호단","pw":"4446"},{"id":"정강윤","name":"정강윤","pw":"6065"},{"id":"정덕상","name":"정덕상","pw":"3943"},{"id":"정동호","name":"정동호","pw":"0816"},{"id":"정명구","name":"정명구","pw":"0926"},{"id":"정민석","name":"정민석","pw":"5370"},{"id":"정상민","name":"정상민","pw":"1354"},{"id":"정연우","name":"정연우","pw":"0005"},{"id":"정영화","name":"정영화","pw":"8357"},{"id":"정유이","name":"정유이","pw":"6448"},{"id":"정주영","name":"정주영","pw":"7686"},{"id":"정진헌","name":"정진헌","pw":"4710"},{"id":"정찬혁","name":"정찬혁","pw":"6539"},{"id":"정철진","name":"정철진","pw":"8916"},{"id":"정해영","name":"정해영","pw":"8104"},{"id":"조성근","name":"조성근","pw":"5722"},{"id":"조영욱","name":"조영욱","pw":"7230"},{"id":"조태선","name":"조태선","pw":"4977"},{"id":"조태식","name":"조태식","pw":"1644"},{"id":"조현서","name":"조현서","pw":"0814"},{"id":"지승근","name":"지승근","pw":"5374"},{"id":"채병주","name":"채병주","pw":"5205"},{"id":"채일식","name":"채일식","pw":"9163"},{"id":"최도승","name":"최도승","pw":"6861"},{"id":"최봉승","name":"최봉승","pw":"1787"},{"id":"최성모","name":"최성모","pw":"8480"},{"id":"최원두","name":"최원두","pw":"3571"},{"id":"최원호","name":"최원호","pw":"2289"},{"id":"최인규","name":"최인규","pw":"1705"},{"id":"최일우","name":"최일우","pw":"4913"},{"id":"최재식","name":"최재식","pw":"1187"},{"id":"최재영","name":"최재영","pw":"8999"},{"id":"최정남","name":"최정남","pw":"3348"},{"id":"최정희","name":"최정희","pw":"8077"},{"id":"최진선","name":"최진선","pw":"7326"},{"id":"최진원","name":"최진원","pw":"4636"},{"id":"최창훈","name":"최창훈","pw":"2017"},{"id":"최현","name":"최현","pw":"9003"},{"id":"추선엽","name":"추선엽","pw":"5184"},{"id":"표덕선","name":"표덕선","pw":"5555"},{"id":"하영수","name":"하영수","pw":"5940"},{"id":"한대근","name":"한대근","pw":"7296"},{"id":"한상진","name":"한상진","pw":"1042"},{"id":"한장환","name":"한장환","pw":"3993"},{"id":"한재석","name":"한재석","pw":"2968"},{"id":"한현석","name":"한현석","pw":"9885"},{"id":"함석찬","name":"함석찬","pw":"6844"},{"id":"허현우","name":"허현우","pw":"7445"},{"id":"홍경조","name":"홍경조","pw":"8917"},{"id":"홍석기","name":"홍석기","pw":"4429"},{"id":"홍석현","name":"홍석현","pw":"7791"},{"id":"황도연","name":"황도연","pw":"2227"},{"id":"황용섭","name":"황용섭","pw":"7230"},{"id":"황원재","name":"황원재","pw":"9450"},{"id":"황충기","name":"황충기","pw":"2149"}];
+  // SECURITY v1: 직원 초기 비밀번호/명부를 HTML에 내장하지 않습니다. Firebase Authentication/Firestore만 사용합니다.
+  const EMPLOYEES = [];
   const USER_KEY = 'gnp_users';
   const MODE_KEY = 'gnp_safety_approval_mode';
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -9055,24 +9045,8 @@ const app = {
   // 최초 1회: 업로드된 사무직·기능직 전화번호 명부를 계정으로 등록합니다.
   // 같은 성명의 기존 계정은 유지하며, 명부로 생성한 계정만 초기 비밀번호를 전화번호 뒤 4자리로 관리합니다.
   function seedEmployeeAccounts() {
-    const users = getUsers();
-    let changed = false;
-    EMPLOYEES.forEach(employee => {
-      const found = users.find(u => u.id === employee.id);
-      if (!found) {
-        users.push({
-          id: employee.id, name: employee.name, pw: employee.pw,
-          team: '인사환경팀', role: 'USER', modules: [],
-          directorySeed: true, approvalPermission: false
-        });
-        changed = true;
-      } else if (found.directorySeed && found.pw !== employee.pw) {
-        found.pw = employee.pw;
-        changed = true;
-      }
-    });
-    // 기본 관리자 계정은 기존 계정(admin / 1234)을 유지합니다.
-    if (changed) saveUsers(users);
+    // SECURITY v1: 계정 생성은 Firebase Authentication에서만 수행합니다.
+    return;
   }
   seedEmployeeAccounts();
 
@@ -9335,7 +9309,7 @@ const app = {
     let changed = false;
     let root = list.find(u => u && u.id === 'admin');
     if(!root) {
-      root = {id:'admin', pw:'1234', name:'관리자', team:'HSE팀', role:'HSE', modules:[]};
+      root = {id:'admin', name:'관리자', team:'HSE팀', role:'HSE', modules:[]};
       list.push(root); changed = true;
     }
     list.forEach(u => {
@@ -9883,7 +9857,7 @@ const app = {
     let changed = false;
     let root = rows.find(u => u && u.id === 'admin');
     if (!root) {
-      root = { id:'admin', pw:'1234', name:'관리자', team:'HSE', role:'HSE', modules:[] };
+      root = { id:'admin', name:'관리자', team:'HSE', role:'HSE', modules:[] };
       rows.push(root);
       changed = true;
     }
@@ -10226,7 +10200,7 @@ const app = {
     let changed = false;
     let root = rows.find(u => u && u.id === 'admin');
     if (!root) {
-      root = {id:'admin', pw:'1234', name:'관리자', team:'HSE', role:'HSE', modules:[]};
+      root = {id:'admin', name:'관리자', team:'HSE', role:'HSE', modules:[]};
       rows.push(root);
       changed = true;
     }
@@ -10955,14 +10929,14 @@ const app = {
     let changed = false;
     let root = rows.find(u => u && u.id === 'admin');
     if (!root) {
-      root = { id:'admin', pw:'1234', name:'관리자', team:'HSE', role:'HSE', modules:[] };
+      root = { id:'admin', name:'관리자', team:'HSE', role:'HSE', modules:[] };
       rows.push(root); changed = true;
     }
     rows.forEach(u => {
       if (!u) return;
       if (!u.id) { u.id = u.name || ''; changed = true; }
       if (!u.name) { u.name = u.id; changed = true; }
-      if (!u.pw) { u.pw = '1234'; changed = true; }
+      if ('pw' in u) { delete u.pw; changed = true; }
       if (!Array.isArray(u.modules)) { u.modules = []; changed = true; }
       if (!u.team) { u.team = u.id === 'admin' ? 'HSE' : teams[0]; changed = true; }
       const nextRole = roleOf(u);
@@ -11247,7 +11221,7 @@ const app = {
           if (proposalChanged) app.ai1.saveData(proposals);
         }
       }
-      if (nextPassword) target.pw = nextPassword;
+      if (nextPassword) { /* SECURITY v1: Firebase Auth에서만 변경 */ }
       if (nextTeam) { target.team = nextTeam; target.teamManuallyAssigned = true; }
       app.db.saveUsers(rows);
       app.auth.currentUser = target;
@@ -12381,6 +12355,8 @@ const app = {
     createUserWithEmailAndPassword,
     onAuthStateChanged,
     signOut,
+    updatePassword,
+    updateEmail,
     initializeAuth,
     indexedDBLocalPersistence,
     inMemoryPersistence,
@@ -12589,10 +12565,7 @@ const app = {
   }
 
   function passwordForMigration(legacyUser) {
-    const oldPassword = String(legacyUser?.pw || "");
-    if (oldPassword.length >= 6) {
-      return { password: oldPassword, temporary: false };
-    }
+    // SECURITY v1: 기존 평문 비밀번호는 마이그레이션에도 재사용하지 않습니다.
     return { password: makeTempPassword(), temporary: true };
   }
 
@@ -12613,18 +12586,7 @@ const app = {
       };
     } catch (error) {
       if (error?.code === "auth/email-already-in-use") {
-        const oldPassword = String(legacyUser?.pw || "");
-        if (oldPassword.length >= 6) {
-          try {
-            const credential = await signInWithEmailAndPassword(auth, email, oldPassword);
-            return { uid: credential.user.uid, email, created: false, password: oldPassword, temporaryPassword: false };
-          } catch (loginError) {
-            const err = new Error(`이미 Firebase 계정이 있지만 현재 비밀번호로 연결할 수 없습니다. Firebase Console에서 해당 계정의 비밀번호를 재설정해 주세요. (${loginError.code || loginError.message})`);
-            err.code = "existing-account-login-failed";
-            throw err;
-          }
-        }
-        const err = new Error("이미 같은 Firebase 계정이 존재하지만 기존 비밀번호가 6자리 미만이라 자동 연결할 수 없습니다. 해당 계정은 Firebase Console에서 비밀번호를 재설정해야 합니다.");
+        const err = new Error("이미 Firebase 계정이 존재합니다. 기존 평문 비밀번호 재사용은 차단되어 있으므로 Firebase Console 또는 비밀번호 재설정 절차를 사용해 주세요.");
         err.code = "existing-account-needs-reset";
         throw err;
       }
@@ -12667,108 +12629,19 @@ const app = {
   }
 
   async function migrateUsers() {
-    if (!isLegacyAdmin()) {
-      alert("관리자(admin) 계정으로 로그인한 상태에서만 Firebase 대량이전 파일을 만들 수 있습니다.");
-      return;
-    }
-    if (!await checkFirebase(false)) return;
-
-    const rows = getLegacyUsers();
-    if (!rows.length) {
-      alert("현재 브라우저에 이전할 회원 데이터가 없습니다.");
-      return;
-    }
-    if (!confirm(`현재 회원 ${rows.length}명의 Firebase 대량이전 파일을 생성합니다.\n\n- 비밀번호 원문은 파일에 저장하지 않습니다.\n- 각 비밀번호를 브라우저에서 PBKDF2-SHA256(100,000회)로 해시합니다.\n- 생성된 JSON은 Firebase Admin SDK 대량 import용입니다.\n- 기존 localStorage 데이터는 삭제되지 않습니다.\n\n진행할까요?`)) return;
-
-    const button = document.getElementById("firebase-v1-migrate");
-    if (button) { button.disabled = true; button.textContent = "보안 이전파일 생성 중..."; }
-
-    try {
-      const out = {
-        schemaVersion: 2,
-        projectId: firebaseConfig.projectId,
-        generatedAt: new Date().toISOString(),
-        hash: { algorithm: "PBKDF2_SHA256", rounds: 100000 },
-        source: "GNP HSE localStorage gnp_users",
-        users: []
-      };
-
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const legacyId = String(row?.id || "").trim();
-        if (!legacyId) continue;
-
-        const password = String(row?.pw || "");
-        if (!password) {
-          writeLog(`△ ${legacyId}: 비밀번호가 없어 이전 파일에서 제외`);
-          continue;
-        }
-
-        const salt = crypto.getRandomValues(new Uint8Array(16));
-        const key = await crypto.subtle.importKey(
-          "raw",
-          new TextEncoder().encode(password),
-          "PBKDF2",
-          false,
-          ["deriveBits"]
-        );
-        const bits = await crypto.subtle.deriveBits(
-          { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
-          key,
-          256
-        );
-        const b64 = (bytes) => {
-          let s = "";
-          for (const b of bytes) s += String.fromCharCode(b);
-          return btoa(s);
-        };
-
-        out.users.push({
-          legacyId,
-          name: String(row?.name || legacyId),
-          team: String(row?.team || "미지정"),
-          role: String(row?.role || (legacyId === "admin" ? "HSE" : "반원")),
-          modules: Array.isArray(row?.modules) ? row.modules : [],
-          active: row?.active !== false,
-          isMaster: legacyId === "admin",
-          email: await internalEmail(legacyId),
-          passwordHash: b64(new Uint8Array(bits)),
-          passwordSalt: b64(salt)
-        });
-
-        if ((i + 1) % 5 === 0) {
-          writeLog(`해시 생성 ${i + 1}/${rows.length}`);
-          await new Promise(r => requestAnimationFrame(() => r()));
-        }
-      }
-
-      const jsonText = JSON.stringify(out, null, 2);
-      const blob = new Blob([jsonText], { type: "application/json;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `GNP_HSE_Firebase_회원대량이전_${new Date().toISOString().slice(0,10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1500);
-
-      writeLog(`✓ 회원 ${out.users.length}명 대량이전 JSON 생성 완료 · 평문 비밀번호 미포함`);
-      alert(`Firebase 대량이전 파일 생성 완료\n\n회원 ${out.users.length}명\nPBKDF2-SHA256 100,000회로 비밀번호를 해시했습니다.\n\n이제 다운로드된 JSON을 Firebase Admin SDK 대량이전 도구에서 사용하면 됩니다.\n기존 localStorage 데이터는 삭제되지 않았습니다.`);
-    } catch (error) {
-      console.error(error);
-      writeLog(`✕ 대량이전 파일 생성 오류: ${error.message || error}`);
-      alert(`대량이전 파일 생성 중 오류가 발생했습니다.\n${error.message || error}`);
-    } finally {
-      if (button) { button.disabled = false; button.textContent = "회원 Firebase 대량이전 파일 만들기"; }
-      refreshPanel();
-    }
+    alert("SECURITY v1에서는 로컬 평문 비밀번호 기반 대량이전을 비활성화했습니다. 계정 추가/재설정은 Firebase Authentication에서 처리해 주세요.");
+    return;
   }
 
   async function loadFirebaseProfile(firebaseUser) {
     const snap = await getDoc(doc(fbDb, "users", firebaseUser.uid));
     if (!snap.exists()) return null;
-    return { firebaseUid: firebaseUser.uid, ...snap.data() };
+    const data = { firebaseUid: firebaseUser.uid, ...snap.data() };
+    delete data.pw;
+    delete data.password;
+    delete data.passwordHash;
+    delete data.passwordSalt;
+    return data;
   }
 
   async function firebaseLogin() {
@@ -12823,47 +12696,20 @@ const app = {
       const pw = document.getElementById("login-pw")?.value || "";
       if (!id || !pw) return alert("로그인 ID와 비밀번호를 입력해 주세요.");
 
-      // 핵심: 로그인 화면은 Firebase 응답을 기다리지 않습니다.
-      // 기존 로컬 회원정보를 먼저 확인하여 즉시 화면에 진입시키고,
-      // Firebase 인증/동기화는 백그라운드에서만 수행합니다.
-      let localUser = null;
       try {
-        const rows = legacyApp.auth.normalizeUsers(legacyApp.db.getUsers());
-        localUser = rows.find(u => String(u.id) === String(id) && String(u.pw || "") === pw) || null;
-      } catch (_) {}
-
-      if (localUser) {
-        legacyApp.auth.currentUser = localUser;
-        try { legacyApp.auth.syncCurrentUser?.(); } catch (_) {}
-        legacyApp.ui.initSystem();
-        refreshPanel();
-
-        // Firebase는 화면 진입을 막지 않고 최대 5초 동안만 백그라운드 인증합니다.
-        Promise.race([
-          firebaseLogin(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Firebase background login timeout")), 5000))
-        ]).then(user => {
-          if (user) {
-            legacyApp.auth.currentUser = user;
-            try { legacyApp.auth.syncCurrentUser?.(); } catch (_) {}
-          }
-        }).catch(err => {
-          console.warn("[GNP] Firebase background login skipped:", err?.code || err?.message || err);
-        });
-        return;
-      }
-
-      // 로컬 회원정보가 없는 계정만 Firebase 인증을 사용하되, 무한 대기는 허용하지 않습니다.
-      try {
-        const user = await Promise.race([
-          firebaseLogin(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Firebase login timeout")), 7000))
-        ]);
+        // SECURITY v1: Firebase Authentication 성공 전에는 절대 시스템 화면을 열지 않습니다.
+        const user = await firebaseLogin();
+        if (user?.active === false) {
+          try { await signOut(fbAuth); } catch (_) {}
+          throw new Error("비활성화된 계정입니다. 관리자에게 문의해 주세요.");
+        }
         legacyApp.auth.currentUser = user;
         try { legacyApp.auth.syncCurrentUser?.(); } catch (_) {}
         legacyApp.ui.initSystem();
       } catch (firebaseError) {
-        alert(`로그인에 실패했습니다.\n${firebaseError.code || firebaseError.message || "인증 정보를 확인해 주세요."}`);
+        console.error("[GNP SECURITY v1] Firebase login failed:", firebaseError);
+        alert(`로그인에 실패했습니다.
+${firebaseError.code || firebaseError.message || "인증 정보를 확인해 주세요."}`);
       } finally {
         refreshPanel();
       }
@@ -12889,6 +12735,7 @@ const app = {
       const pw = document.getElementById("reg-pw")?.value || "";
       const pwConfirm = document.getElementById("reg-pw-confirm")?.value || "";
       if (!name || !pw) return alert("모든 항목을 입력해 주세요.");
+      if (String(name).toLowerCase() === "admin") return alert("admin ID는 시스템 예약 계정이라 신규 가입에 사용할 수 없습니다.");
       if (pw !== pwConfirm) return alert("비밀번호가 일치하지 않습니다. 다시 확인해 주세요.");
       if (pw.length < 6) return alert("Firebase 계정은 비밀번호를 6자리 이상으로 입력해 주세요.");
       if (!legacyApp.teams.userTeams.includes(team)) return alert("선택한 부서를 확인해 주세요.");
@@ -12897,7 +12744,7 @@ const app = {
       try {
         const email = await internalEmail(name);
         const credential = await createUserWithEmailAndPassword(fbAuth, email, pw);
-        const user = { id: name, name, team, role: "반원", modules: [], pw, firebaseUid: credential.user.uid };
+        const user = { id: name, name, team, role: "반원", modules: [], active: true, firebaseUid: credential.user.uid };
         localRows.push(user);
         legacyApp.db.saveUsers(localRows);
         await writeUserProfile(credential.user.uid, user, email);
@@ -12990,6 +12837,20 @@ const app = {
         migrateUsers,
         check: checkFirebase,
         internalEmail,
+        updateCurrentCredentials: async ({legacyId, password} = {}) => {
+          if (!fbAuth?.currentUser) throw new Error('Firebase 로그인 세션이 없습니다. 다시 로그인해 주세요.');
+          if (legacyId) {
+            const nextEmail = await internalEmail(String(legacyId).trim());
+            if (nextEmail && fbAuth.currentUser.email !== nextEmail) {
+              await updateEmail(fbAuth.currentUser, nextEmail);
+            }
+          }
+          if (password) {
+            if (String(password).length < 6) throw new Error('비밀번호는 6자리 이상이어야 합니다.');
+            await updatePassword(fbAuth.currentUser, String(password));
+          }
+          return true;
+        },
         deleteMemberAccount: deleteFirebaseMemberAccount,
 
         // v38: 안전제안 실제 등록/수정 함수가 Firestore를 직접 호출합니다.
@@ -13793,16 +13654,7 @@ const app = {
       var pw=(document.getElementById('login-pw')||{}).value||'';
       id=String(id).trim();
       if(!id || !pw){ alert('로그인 ID와 비밀번호를 입력해 주세요.'); return; }
-      try{
-        var users=typeof auth.normalizeUsers==='function' ? auth.normalizeUsers(app.db.getUsers()) : (app.db.getUsers()||[]);
-        var user=users.find(function(u){ return String(u.id)===id && String(u.pw||'')===pw; });
-        if(user){
-          auth.currentUser=user;
-          app.ui.initSystem();
-          return;
-        }
-      }catch(e){ console.warn('[GNP] local login fallback failed',e); }
-      // 기존 로그인 로직은 로컬 회원이 없는 경우에만 사용합니다.
+      // SECURITY v1: 로컬/Firestore pw 비교는 사용하지 않고 기존 Firebase 로그인 체인만 호출합니다.
       try{
         if(typeof oldLogin==='function') return oldLogin.apply(auth,arguments);
       }catch(e){ alert('로그인에 실패했습니다.'); console.error(e); }
@@ -14177,6 +14029,11 @@ import {
 
   const clean = value => {
     const out = { ...(value || {}) };
+    // SECURITY v1: 인증 비밀값은 Firestore/런타임 사용자 레코드로 전달하지 않습니다.
+    delete out.pw;
+    delete out.password;
+    delete out.passwordHash;
+    delete out.passwordSalt;
     Object.keys(out).forEach(k => {
       if(out[k] === undefined) delete out[k];
     });
@@ -15642,8 +15499,13 @@ import {
 
   function normalizeUser(row){
     const id = uid(row);
+    const safe = {...(row || {})};
+    delete safe.pw;
+    delete safe.password;
+    delete safe.passwordHash;
+    delete safe.passwordSalt;
     return {
-      ...(row || {}),
+      ...safe,
       id,
       legacyId: String(row?.legacyId || id),
       name: String(row?.name || id),
@@ -15656,6 +15518,10 @@ import {
   function clean(row){
     const out = {...(row || {})};
     delete out.syncUpdatedAt;
+    delete out.pw;
+    delete out.password;
+    delete out.passwordHash;
+    delete out.passwordSalt;
     Object.keys(out).forEach(k => {
       if(out[k] === undefined) delete out[k];
     });
@@ -15774,25 +15640,13 @@ import {
     const login = function(){
       const id = String(document.getElementById("login-id")?.value || "").trim();
       const pw = String(document.getElementById("login-pw")?.value || "");
-
       if(!id || !pw){
         alert("성명과 비밀번호를 입력해 주세요.");
         return;
       }
-
-      // Firestore users가 준비된 경우 항상 공유 프로필을 먼저 사용.
-      const found = users.find(u => uid(u) === id && String(u?.pw || "") === pw);
-
-      if(found){
-        a.auth.currentUser = clone(found);
-        a.ui.initSystem();
-        refreshUserUI();
-        return;
-      }
-
-      // 기존 Firebase Auth/레거시 로그인을 백업으로 유지.
+      // SECURITY v1: Firestore 사용자 문서의 pw 필드는 인증에 절대 사용하지 않습니다.
       if(fallback) return fallback();
-      alert("인증 정보가 올바르지 않습니다.");
+      alert("Firebase 보안 로그인이 준비되지 않았습니다. 새로고침 후 다시 시도해 주세요.");
     };
 
     login.__gnpV46Users = true;
@@ -18594,6 +18448,277 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
   setInterval(()=>{updateAdminAccessUi();renderPublicBadges();},1500);
 
   console.log('[GNP v58] 관리자 전용 AI 유사·중복 제안 판독기 · JSON 안정화 로드');
+})();
+</script>
+
+
+
+<!-- ============================================================
+     GNP SECURITY v1 - FIREBASE AUTH FINAL AUTHORITY
+     - Firebase Authentication 성공 전 화면 진입 금지
+     - localStorage/Firestore pw 필드로 로그인 금지
+     - 개인정보 비밀번호/ID 변경은 Firebase Auth와 동기화
+     - 로컬 평문 비밀번호 제거
+     - 인증된 HSE/admin 로그인 시 Firestore users의 레거시 평문 비밀번호 필드 제거
+     - 안전제안/사진/결재/권한/동기화/AI 로직은 변경하지 않음
+     ============================================================ -->
+<script type="module" id="gnp-security-v1-final-authority">
+import {
+  signInWithEmailAndPassword,
+  signOut
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  getDoc,
+  doc,
+  updateDoc,
+  deleteField
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+
+(function(){
+  'use strict';
+  const SECRET_FIELDS = ['pw','password','passwordHash','passwordSalt'];
+
+  function stripSecrets(value){
+    const out = {...(value || {})};
+    SECRET_FIELDS.forEach(k => delete out[k]);
+    return out;
+  }
+
+  function scrubLocalPasswordCache(){
+    try {
+      const raw = localStorage.getItem('gnp_users');
+      if(!raw) return;
+      const rows = JSON.parse(raw);
+      if(!Array.isArray(rows)) return;
+      let changed = false;
+      const safe = rows.map(row => {
+        const next = {...(row || {})};
+        SECRET_FIELDS.forEach(k => {
+          if(Object.prototype.hasOwnProperty.call(next,k)){ delete next[k]; changed = true; }
+        });
+        return next;
+      });
+      if(changed) localStorage.setItem('gnp_users', JSON.stringify(safe));
+    } catch(error){ console.warn('[GNP SECURITY v1] local password cleanup:', error); }
+  }
+
+  async function findProfile(db, loginId, uid){
+    // 현재 운영 로직(v46)과 동일하게 users/{기존ID} 문서를 가장 우선합니다.
+    const byLegacyDoc = await getDoc(doc(db,'users',loginId));
+    if(byLegacyDoc.exists()) return {ref:byLegacyDoc.ref, data:stripSecrets(byLegacyDoc.data())};
+
+    for(const field of ['legacyId','id']){
+      const snap = await getDocs(query(collection(db,'users'), where(field,'==',loginId)));
+      if(!snap.empty){
+        const preferred = snap.docs.find(d => d.id === loginId) || snap.docs[0];
+        return {ref:preferred.ref, data:stripSecrets(preferred.data())};
+      }
+    }
+
+    const byUid = await getDoc(doc(db,'users',uid));
+    if(byUid.exists()) return {ref:byUid.ref, data:stripSecrets(byUid.data())};
+    return null;
+  }
+
+  async function cleanupFirestorePasswords(currentProfile){
+    const gf = window.gnpFirebase;
+    if(!gf?.db || !gf?.auth?.currentUser) return;
+    const aliases = [currentProfile?.id,currentProfile?.legacyId,currentProfile?.name].map(x=>String(x||'').trim());
+    const privileged = aliases.includes('admin') || String(currentProfile?.role||'') === 'HSE';
+    if(!privileged) return;
+    try{
+      const snap = await getDocs(collection(gf.db,'users'));
+      for(const d of snap.docs){
+        const data = d.data() || {};
+        const patch = {};
+        let dirty = false;
+        SECRET_FIELDS.forEach(k => {
+          if(Object.prototype.hasOwnProperty.call(data,k)){ patch[k] = deleteField(); dirty = true; }
+        });
+        if(dirty) await updateDoc(d.ref, patch);
+      }
+      console.log('[GNP SECURITY v1] Firestore legacy plaintext password fields cleaned');
+    }catch(error){
+      console.warn('[GNP SECURITY v1] Firestore password cleanup skipped:', error?.message || error);
+    }
+  }
+
+  function authErrorMessage(error){
+    const code = String(error?.code || '');
+    if(code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) return '아이디 또는 비밀번호가 올바르지 않습니다.';
+    if(code.includes('too-many-requests')) return '로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.';
+    if(code.includes('network-request-failed')) return '네트워크 연결을 확인해 주세요.';
+    return error?.message || 'Firebase 인증에 실패했습니다.';
+  }
+
+  async function secureLogin(){
+    const gf = window.gnpFirebase;
+    const a = window.app || (typeof app !== 'undefined' ? app : null);
+    const id = String(document.getElementById('login-id')?.value || '').trim();
+    const pw = String(document.getElementById('login-pw')?.value || '');
+    if(!id || !pw) return alert('성명과 비밀번호를 입력해 주세요.');
+    if(!gf?.auth || !gf?.db || typeof gf.internalEmail !== 'function'){
+      return alert('Firebase 보안 로그인이 아직 준비되지 않았습니다. 새로고침 후 다시 시도해 주세요.');
+    }
+
+    const button = document.querySelector('#login-box button[onclick*="app.auth.login"]');
+    const oldHtml = button?.innerHTML;
+    if(button){ button.disabled = true; button.innerHTML = 'Firebase 인증 중...'; }
+    try{
+      try { await signOut(gf.auth); } catch(_) {}
+      const email = await gf.internalEmail(id);
+      const credential = await signInWithEmailAndPassword(gf.auth,email,pw);
+      const profileHit = await findProfile(gf.db,id,credential.user.uid);
+      if(!profileHit) throw new Error('Firebase 사용자 프로필을 찾을 수 없습니다. 관리자에게 문의해 주세요.');
+      const profile = stripSecrets(profileHit.data);
+      if(profile.active === false){
+        try { await signOut(gf.auth); } catch(_) {}
+        throw new Error('비활성화된 계정입니다. 관리자에게 문의해 주세요.');
+      }
+      const user = {
+        ...profile,
+        id:String(profile.legacyId || profile.id || id),
+        legacyId:String(profile.legacyId || profile.id || id),
+        name:String(profile.name || id),
+        team:String(profile.team || '미지정'),
+        role:String(profile.role || '반원'),
+        firebaseUid:credential.user.uid
+      };
+      SECRET_FIELDS.forEach(k => delete user[k]);
+      a.auth.currentUser = user;
+      a.ui.initSystem();
+      cleanupFirestorePasswords(user).catch(()=>{});
+      scrubLocalPasswordCache();
+    }catch(error){
+      console.error('[GNP SECURITY v1] login failed:', error);
+      alert(authErrorMessage(error));
+    }finally{
+      if(button){ button.disabled = false; button.innerHTML = oldHtml || '관리자 모드로 접속'; }
+    }
+  }
+
+  function installSecureLogin(){
+    const a = window.app || (typeof app !== 'undefined' ? app : null);
+    if(!a?.auth) return false;
+    secureLogin.__gnpV27 = true;
+    secureLogin.__gnpV46Users = true;
+    secureLogin.__gnpV47ProfileGuard = true;
+    secureLogin.__gnpSecurityV1 = true;
+    a.auth.login = secureLogin;
+    return true;
+  }
+
+  function patchDbSanitizer(){
+    const a = window.app || (typeof app !== 'undefined' ? app : null);
+    if(!a?.db) return false;
+    // v46이 시작 후 몇 초 동안 DB 함수를 재설치하므로 함수 자체에 표식을 두고 재래핑합니다.
+    if(typeof a.db.getUsers === 'function' && !a.db.getUsers.__gnpSecurityV1){
+      const baseGet = a.db.getUsers.bind(a.db);
+      const safeGet = function(){
+        const rows = baseGet();
+        return (Array.isArray(rows)?rows:[]).map(stripSecrets);
+      };
+      safeGet.__gnpSecurityV1 = true;
+      a.db.getUsers = safeGet;
+    }
+    if(typeof a.db.saveUsers === 'function' && !a.db.saveUsers.__gnpSecurityV1){
+      const baseSave = a.db.saveUsers.bind(a.db);
+      const safeSave = function(rows){
+        return baseSave((Array.isArray(rows)?rows:[]).map(stripSecrets));
+      };
+      safeSave.__gnpSecurityV1 = true;
+      a.db.saveUsers = safeSave;
+    }
+    return true;
+  }
+
+  async function secureProfileSave(){
+    const gf = window.gnpFirebase;
+    const a = window.app || (typeof app !== 'undefined' ? app : null);
+    const me = stripSecrets(a?.auth?.currentUser || {});
+    if(!me.id || !gf?.auth?.currentUser) return alert('Firebase 로그인 세션을 확인해 주세요.');
+
+    const rows = (a.auth.normalizeUsers?.(a.db.getUsers()) || []).map(stripSecrets);
+    const target = rows.find(u => String(u.id) === String(me.id));
+    if(!target) return alert('사용자 정보를 찾을 수 없습니다.');
+    const nextName = String(document.getElementById('profile-name-id')?.value || '').trim();
+    const nextPassword = String(document.getElementById('profile-password')?.value || '');
+    const nextTeam = String(document.getElementById('profile-team')?.value || '');
+    if(!nextName) return alert('이름(ID)을 입력해 주세요.');
+    if(nextPassword && nextPassword.length < 6) return alert('비밀번호는 6자리 이상으로 입력해 주세요.');
+    if(target.id !== 'admin' && nextName !== target.id && rows.some(u => String(u.id) === nextName)) return alert('이미 사용 중인 이름(ID)입니다.');
+
+    const saveBtn = document.getElementById('profile-settings-save');
+    if(saveBtn) saveBtn.disabled = true;
+    try{
+      if(typeof gf.updateCurrentCredentials !== 'function') throw new Error('Firebase 개인정보 변경 기능이 준비되지 않았습니다.');
+      await gf.updateCurrentCredentials({
+        legacyId: target.id !== 'admin' && nextName !== target.id ? nextName : '',
+        password: nextPassword
+      });
+
+      if(target.id === 'admin'){
+        target.name = nextName;
+      }else if(nextName !== target.id){
+        const oldId = target.id;
+        target.id = nextName;
+        target.legacyId = nextName;
+        target.name = nextName;
+        if(a.ai1?.getData && a.ai1?.saveData){
+          const proposals = a.ai1.getData();
+          let changed = false;
+          proposals.forEach(item => {
+            if(String(item.authorId || '') === String(oldId)){
+              item.authorId = nextName; item.author = nextName; changed = true;
+            }
+          });
+          if(changed) a.ai1.saveData(proposals);
+        }
+      }else{
+        target.name = nextName;
+      }
+      if(nextTeam){ target.team = nextTeam; target.teamManuallyAssigned = true; }
+      SECRET_FIELDS.forEach(k => delete target[k]);
+      const safeRows = rows.map(row => row === target ? stripSecrets(target) : stripSecrets(row));
+      a.db.saveUsers(safeRows);
+      a.auth.currentUser = stripSecrets(target);
+      document.getElementById('profile-settings-modal')?.classList.remove('open');
+      const p = document.getElementById('profile-password'); if(p) p.value='';
+      alert('개인정보가 Firebase 보안 계정에 저장되었습니다.');
+    }catch(error){
+      console.error('[GNP SECURITY v1] profile save failed:', error);
+      const code = String(error?.code || '');
+      if(code.includes('requires-recent-login')) alert('보안을 위해 다시 로그인한 뒤 개인정보 변경을 다시 시도해 주세요.');
+      else alert(error?.message || '개인정보 변경에 실패했습니다.');
+    }finally{
+      if(saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  function bindSecureProfile(){
+    const btn = document.getElementById('profile-settings-save');
+    if(!btn || btn.dataset.gnpSecurityV1 === '1') return;
+    btn.dataset.gnpSecurityV1 = '1';
+    btn.onclick = secureProfileSave;
+  }
+
+  function boot(){
+    scrubLocalPasswordCache();
+    installSecureLogin();
+    patchDbSanitizer();
+    bindSecureProfile();
+  }
+  boot();
+  const observer = new MutationObserver(()=>{ installSecureLogin(); patchDbSanitizer(); bindSecureProfile(); });
+  observer.observe(document.body,{childList:true,subtree:true});
+  [100,300,700,1500,3000,7000,12000].forEach(ms=>setTimeout(boot,ms));
+  window.addEventListener('focus',boot);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden) boot(); });
+  console.log('[GNP SECURITY v1] Firebase Authentication final authority loaded');
 })();
 </script>
 
