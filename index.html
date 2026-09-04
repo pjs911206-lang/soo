@@ -19197,44 +19197,124 @@ import {
 -->
 
 <!-- GNP SECURITY v4.5: 신규 제안 원본 권한필드 선고정 + 최종 direct writer UID미러 fallback -->
-<script id="gnp-security-v44-mobile-permission-diagnostic">
+<script id="gnp-security-v46-permission-diagnostic-silent">
 (function(){
   'use strict';
-  if(window.__gnpV44AlertPatched) return;
-  window.__gnpV44AlertPatched=true;
+  if(window.__gnpV46SilentDiagInstalled) return;
+  window.__gnpV46SilentDiagInstalled=true;
   const baseAlert=window.alert.bind(window);
-  const short=v=>{v=String(v||''); return v.length>18?v.slice(0,10)+'…'+v.slice(-5):v;};
   window.alert=function(message){
     try{
       const text=String(message||'');
-      if(/안전제안 Firestore 동기화 실패|Missing or insufficient permissions/i.test(text)){
+      if(/안전제안 Firestore 동기화 실패|안전제안 Firestore 저장 실패|Missing or insufficient permissions/i.test(text)){
         const gf=window.gnpFirebase||{};
         const fu=gf.auth?.currentUser||{};
         const a=(window.app||{}).auth?.currentUser||{};
         const p=window.__gnpV44ProposalDiag||{};
-        const u=window.__gnpV44UidDiag||{};
-        const cur=u.current||{};
-        const can=u.canonical||{};
-        const extra=[
-          '',
-          '[보안 v4.5 진단]',
-          'App Check: '+String(gf.appCheckStatus?.()||'unknown'),
-          'Firebase UID: '+short(fu.uid),
-          'Firebase email: '+String(fu.email||'(anonymous)'),
-          'Anonymous: '+String(!!fu.isAnonymous),
-          '앱 계정: '+String(a.id||a.legacyId||'')+' / '+String(a.role||'')+' / '+String(a.team||''),
-          '제안 ID: '+String(p.id||''),
-          '제안 createdByUid: '+short(p.createdByUid),
-          '제안 authorId/team: '+String(p.authorId||'')+' / '+String(p.team||''),
-          'UID 일치: '+String(!!p.createdByUid && p.createdByUid===String(fu.uid||'')),
-          'UID 프로필: '+String(cur.legacyId||'(없음)')+' / '+String(cur.role||'')+' / '+String(cur.team||'')+' / active='+String(cur.active),
-          '기준 프로필: '+String(can.legacyId||'')+' / '+String(can.role||'')+' / '+String(can.team||'')+' / active='+String(can.active)
-        ].join('\n');
-        return baseAlert(text+extra);
+        window.gnpSecurityLastDenied={
+          at:new Date().toISOString(),
+          message:text,
+          appCheck:String(gf.appCheckStatus?.()||'unknown'),
+          firebaseUid:String(fu.uid||''),
+          firebaseEmail:String(fu.email||''),
+          anonymous:!!fu.isAnonymous,
+          appUser:{id:String(a.id||a.legacyId||''),role:String(a.role||''),team:String(a.team||'')},
+          proposal:{id:String(p.id||''),createdByUid:String(p.createdByUid||''),authorId:String(p.authorId||''),team:String(p.team||'')}
+        };
+        console.warn('[GNP SECURITY v4.6] Firestore denied diagnostic', window.gnpSecurityLastDenied);
       }
     }catch(_){ }
     return baseAlert(message);
   };
+})();
+</script>
+
+
+<!-- GNP SECURITY v4.6: Guest 권한 UI 정리 + 기대된 permission-denied 진단팝업 제거 -->
+<style id="gnp-security-v46-guest-ui-style">
+  body.gnp-v46-guest-mode #view-AI1 button[data-gnp-guest-deny="1"]{display:none!important;}
+</style>
+<script id="gnp-security-v46-guest-ui-guard">
+(function(){
+  'use strict';
+  if(window.__gnpSecurityV46GuestGuard) return;
+  window.__gnpSecurityV46GuestGuard=true;
+
+  const getApp=()=>{ try{return window.app||null;}catch(_){return null;} };
+  const isGuest=()=>{
+    const a=getApp();
+    const u=a?.auth?.currentUser||{};
+    const fu=window.gnpFirebase?.auth?.currentUser||{};
+    return String(u.id||u.legacyId||'')==='guest' || String(u.role||'').toUpperCase()==='GUEST' || !!fu.isAnonymous;
+  };
+  const denied=(action)=>{
+    alert(`Guest 모드에서는 안전제안을 ${action}할 수 없습니다.\n\nGuest는 제안 등록과 조회만 가능합니다.`);
+    return false;
+  };
+
+  function markGuestButtons(){
+    const guest=isGuest();
+    document.body.classList.toggle('gnp-v46-guest-mode',guest);
+    document.querySelectorAll('#view-AI1 button, #ai1-detail-modal button, #ai1-measure-modal button').forEach(btn=>{
+      const label=String(btn.textContent||'').replace(/\s+/g,' ').trim();
+      const blocked = /^(수정|삭제)$/.test(label) || /^(수정하기|삭제하기)$/.test(label);
+      if(blocked) btn.dataset.gnpGuestDeny='1';
+      if(!guest && btn.dataset.gnpGuestDeny==='1') delete btn.dataset.gnpGuestDeny;
+    });
+  }
+
+  function installGuards(){
+    const a=getApp();
+    if(!a?.ai1) return false;
+
+    if(!a.ai1.__gnpV46EditBase){
+      a.ai1.__gnpV46EditBase=a.ai1.edit?.bind(a.ai1);
+      a.ai1.edit=function(){
+        if(isGuest()) return denied('수정');
+        return a.ai1.__gnpV46EditBase?.(...arguments);
+      };
+    }
+    if(!a.ai1.__gnpV46RemoveBase){
+      a.ai1.__gnpV46RemoveBase=a.ai1.remove?.bind(a.ai1);
+      a.ai1.remove=function(){
+        if(isGuest()) return denied('삭제');
+        return a.ai1.__gnpV46RemoveBase?.(...arguments);
+      };
+      a.ai1.delete=a.ai1.remove;
+      a.ai1.deleteProposal=a.ai1.remove;
+    }
+
+    window.safetyRole=window.safetyRole||{};
+    window.safetyRole.edit=function(id){
+      if(isGuest()) return denied('수정');
+      return a.ai1.edit(id);
+    };
+    window.safetyRole.remove=function(id){
+      if(isGuest()) return denied('삭제');
+      return a.ai1.remove(id);
+    };
+
+    if(typeof a.ai1.render==='function' && !a.ai1.render.__gnpV46GuestUi){
+      const baseRender=a.ai1.render.bind(a.ai1);
+      const wrapped=function(){
+        const r=baseRender(...arguments);
+        requestAnimationFrame(markGuestButtons);
+        return r;
+      };
+      wrapped.__gnpV46GuestUi=true;
+      a.ai1.render=wrapped;
+    }
+    markGuestButtons();
+    return true;
+  }
+
+  let tries=0;
+  const timer=setInterval(()=>{
+    if(installGuards() || ++tries>300) clearInterval(timer);
+  },100);
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',()=>{installGuards();markGuestButtons();},{once:true});
+  else {installGuards();markGuestButtons();}
+  new MutationObserver(()=>markGuestButtons()).observe(document.body,{childList:true,subtree:true});
 })();
 </script>
 
