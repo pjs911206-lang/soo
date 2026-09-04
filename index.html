@@ -8919,6 +8919,40 @@ const app = {
           : (previous?.scores || {})
       };
 
+      // SECURITY v4.5: 신규 제안은 Firestore로 나가기 전에 실제 record 자체에
+      // Firebase UID + UID 권한미러의 작성자/부서를 고정합니다.
+      // saveData 래퍼의 복사본에만 stamp 되던 v4.4 문제를 제거합니다.
+      if (isNew) {
+        try {
+          const gfSec = window.gnpFirebase || {};
+          const fbUser = gfSec.auth?.currentUser || null;
+          const diag = window.__gnpV44UidDiag || {};
+          const currentMirror = diag.current || {};
+          const canonicalMirror = diag.canonical || {};
+          const mirror = String(currentMirror.legacyId || currentMirror.id || '').trim()
+            ? currentMirror
+            : canonicalMirror;
+          const appUser = window.app?.auth?.currentUser || {};
+          if (fbUser?.uid) {
+            record.createdByUid = String(fbUser.uid);
+            if (fbUser.isAnonymous) {
+              record.authorId = 'guest';
+              record.author = 'Guest';
+              record.team = '안전제안';
+            } else {
+              const secureLegacyId = String(mirror.legacyId || mirror.id || appUser.id || appUser.legacyId || '').trim();
+              const secureName = String(mirror.name || appUser.name || secureLegacyId || record.author || '').trim();
+              const secureTeam = String(mirror.team || appUser.team || record.team || '').trim();
+              if (secureLegacyId) record.authorId = secureLegacyId;
+              if (secureName) record.author = secureName;
+              if (secureTeam) record.team = secureTeam;
+            }
+          }
+        } catch (securityStampError) {
+          console.warn('[GNP SECURITY v4.5] 신규 제안 권한필드 stamp 실패:', securityStampError);
+        }
+      }
+
       if (existingIndex >= 0) records[existingIndex] = record;
       else records.unshift(record);
 
@@ -19021,10 +19055,24 @@ import {
       const writer=async function(row){
         if(window.__gnpSecurityV2Creating && row && gf.auth?.currentUser){
           const me=getApp()?.auth?.currentUser || {};
-          row.createdByUid=String(gf.auth.currentUser.uid||'');
-          row.authorId=String(me.id||me.legacyId||row.authorId||'');
-          row.author=String(me.name||me.id||row.author||'');
-          row.team=String(me.team||row.team||'미지정');
+          const diag=window.__gnpV44UidDiag || {};
+          const currentMirror=diag.current || {};
+          const canonicalMirror=diag.canonical || {};
+          const mirror=String(currentMirror.legacyId || currentMirror.id || '').trim() ? currentMirror : canonicalMirror;
+          const fbUser=gf.auth.currentUser;
+          row.createdByUid=String(fbUser.uid||row.createdByUid||'');
+          if(fbUser.isAnonymous){
+            row.authorId='guest';
+            row.author='Guest';
+            row.team='안전제안';
+          }else{
+            const secureLegacyId=String(mirror.legacyId||mirror.id||me.id||me.legacyId||row.authorId||'').trim();
+            const secureName=String(mirror.name||me.name||me.id||row.author||secureLegacyId||'').trim();
+            const secureTeam=String(mirror.team||me.team||row.team||'').trim();
+            if(secureLegacyId) row.authorId=secureLegacyId;
+            if(secureName) row.author=secureName;
+            if(secureTeam) row.team=secureTeam;
+          }
         }
         return baseWriter(row);
       };
@@ -19148,6 +19196,7 @@ import {
      - Firestore Rules v2.1 변경 없음
 -->
 
+<!-- GNP SECURITY v4.5: 신규 제안 원본 권한필드 선고정 + 최종 direct writer UID미러 fallback -->
 <script id="gnp-security-v44-mobile-permission-diagnostic">
 (function(){
   'use strict';
@@ -19168,7 +19217,7 @@ import {
         const can=u.canonical||{};
         const extra=[
           '',
-          '[보안 v4.4 진단]',
+          '[보안 v4.5 진단]',
           'App Check: '+String(gf.appCheckStatus?.()||'unknown'),
           'Firebase UID: '+short(fu.uid),
           'Firebase email: '+String(fu.email||'(anonymous)'),
