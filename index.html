@@ -18913,6 +18913,32 @@ import {
       a.ai1.save=wrapped;
     }
 
+    // SECURITY v2.2: 신규 제안의 첫 saveData() 요청부터 Rules 필수 권한 필드를 포함합니다.
+    // 기존 구조는 saveData()가 direct writer보다 먼저 실행될 수 있어 신규 Create가 간헐적으로 거부되는 race가 있었습니다.
+    if(typeof a.ai1.saveData==='function' && !a.ai1.saveData.__gnpSecurityV22PreStamp){
+      const baseSaveData=a.ai1.saveData.bind(a.ai1);
+      const stampedSaveData=function(rows){
+        if(window.__gnpSecurityV2Creating && Array.isArray(rows) && gf.auth?.currentUser){
+          const me=getApp()?.auth?.currentUser || {};
+          const existingIds=new Set((a.ai1.getData?.()||[]).map(x=>String(x?.id||'')).filter(Boolean));
+          const uid=String(gf.auth.currentUser.uid||'');
+          rows=rows.map(row=>{
+            if(!row || existingIds.has(String(row.id||''))) return row;
+            return {
+              ...row,
+              createdByUid:uid,
+              authorId:String(me.id||me.legacyId||row.authorId||''),
+              author:String(me.name||me.id||row.author||''),
+              team:String(me.team||row.team||'미지정')
+            };
+          });
+        }
+        return baseSaveData(rows);
+      };
+      stampedSaveData.__gnpSecurityV22PreStamp=true;
+      a.ai1.saveData=stampedSaveData;
+    }
+
     if(typeof gf.writeSafetyProposal==='function' && !gf.writeSafetyProposal.__gnpSecurityV2Stamp){
       const baseWriter=gf.writeSafetyProposal.bind(gf);
       const writer=async function(row){
