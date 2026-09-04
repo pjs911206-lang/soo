@@ -16214,7 +16214,48 @@ import {
       const before = await fs.getDoc(ref);
 
       if(!before.exists()){
-        throw new Error('Firestore에서 해당 안전제안 문서를 찾을 수 없습니다. ID: ' + value);
+        // v4.7: 과거 동기화 실패로 화면/로컬 캐시에만 남은 유령 제안 정리.
+        // 서버 문서가 이미 없으면 삭제 실패가 아니라 tombstone을 남겨 모든 기기에서 숨깁니다.
+        try{
+          if(typeof window.gnpRememberDeletedProposalV53 === 'function'){
+            await window.gnpRememberDeletedProposalV53(value, 'orphan-cleanup-v4.7');
+          }else{
+            const orphanTombstoneRef = fs.doc(window.gnpFirebase.db, 'safetyProposalTombstones', value);
+            await fs.setDoc(
+              orphanTombstoneRef,
+              {
+                id:value,
+                deleted:true,
+                deletedBy:me.name || me.id || '',
+                deletedById:me.id || '',
+                deletedRole:roleOf(me),
+                deletedTeam:me.team || '',
+                deletedAt:fs.serverTimestamp(),
+                source:'GNP-v4.7-orphan-cleanup'
+              },
+              {merge:true}
+            );
+          }
+        }catch(tombError){
+          throw new Error('서버에는 이미 삭제된 제안이지만 잔여 목록 정리에 실패했습니다. ' + (tombError?.message || tombError));
+        }
+
+        // 오래된 브라우저 캐시가 다시 목록을 살리지 않도록 기존 로컬 제안 캐시도 제거합니다.
+        try { localStorage.removeItem('gnp_ai1_proposals'); } catch(_) {}
+        try { a.ai1.render?.(); } catch(_) {}
+
+        window.gnpDeleteStatus = {
+          version:'v4.7-orphan-cleanup',
+          active:true,
+          success:true,
+          orphan:true,
+          id:value,
+          deletedBy:me.name || me.id || '',
+          cleanedAt:new Date().toISOString()
+        };
+        console.log('[GNP v4.7] Firestore에 이미 없는 잔여 제안 정리 완료:', value);
+        alert('이 제안은 Firestore에서 이미 삭제된 상태였습니다.\n잔여 목록 데이터를 정리했습니다.');
+        return true;
       }
 
       // v53: 삭제된 ID가 오래된 PC/모바일 캐시에서 다시 업로드되지 못하도록
@@ -16977,6 +17018,9 @@ import {
     );
     return true;
   }
+
+  // v4.7: 명시적 삭제/유령 제안 정리 경로에서 동일한 tombstone 로직을 재사용합니다.
+  window.gnpRememberDeletedProposalV53 = rememberDeleted;
 
   async function purgeProposalId(id, reason='tombstone'){
     const value = String(id || '').trim();
@@ -19318,5 +19362,6 @@ import {
 })();
 </script>
 
+<!-- GNP SECURITY v4.7: Firestore 미존재 유령 제안은 tombstone으로 잔여 목록 정리; Rules 변경 없음 -->
 </body>
 </html>
