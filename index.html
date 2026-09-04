@@ -10,6 +10,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- GNP SECURITY v5: 로그인 3회 실패 후 체크박스 reCAPTCHA Enterprise -->
+    <script src="https://www.google.com/recaptcha/enterprise.js?render=explicit" async defer></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;600;700&display=swap');
         body { font-family: 'Pretendard', sans-serif; background-color: #f8fafc; }
@@ -446,6 +448,11 @@
             <div>
                 <label class="text-[10px] font-bold text-gray-400 ml-1">비밀번호 (PW)</label>
                 <input type="password" id="login-pw" placeholder="••••" class="w-full border p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-900 transition">
+            </div>
+            <div id="gnp-login-captcha-wrap" class="hidden rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p class="text-[11px] font-bold text-amber-800 mb-2"><i class="fas fa-shield-alt mr-1"></i>비밀번호 입력이 3회 실패하여 추가 인증이 필요합니다.</p>
+                <div id="gnp-login-captcha" class="flex justify-center"></div>
+                <p id="gnp-login-captcha-status" class="text-[10px] text-gray-500 mt-2 text-center">체크박스 인증을 완료한 뒤 다시 로그인해 주세요.</p>
             </div>
             <button onclick="app.auth.login()" class="w-full gnp-blue text-white py-4 rounded-xl font-bold hover:bg-blue-900 transition shadow-lg mt-2">관리자 모드로 접속</button>
             <button type="button" onclick="app.auth.loginGuest()" class="w-full mt-3 border-2 border-blue-900 text-blue-900 py-3.5 rounded-xl font-bold hover:bg-blue-50 transition">
@@ -18620,7 +18627,7 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
 
 
 <!-- ============================================================
-     GNP SECURITY v1 - FIREBASE AUTH FINAL AUTHORITY
+     GNP SECURITY v1 + v5 - FIREBASE AUTH FINAL AUTHORITY / 3회 실패 CAPTCHA
      - Firebase Authentication 성공 전 화면 진입 금지
      - localStorage/Firestore pw 필드로 로그인 금지
      - 개인정보 비밀번호/ID 변경은 Firebase Auth와 동기화
@@ -18647,6 +18654,132 @@ import {
 (function(){
   'use strict';
   const SECRET_FIELDS = ['pw','password','passwordHash','passwordSalt'];
+
+  // GNP SECURITY v5 - 로그인 실패 3회 이후 클라이언트 CAPTCHA 추가 방어
+  // 주의: GitHub Pages 단독 구조이므로 CAPTCHA 토큰의 서버측 assessment는 하지 않습니다.
+  // 따라서 Firebase Auth 자체 보호를 대체하지 않고 반복 입력을 억제하는 추가 방어층으로 사용합니다.
+  const LOGIN_CAPTCHA_SITE_KEY = '6LfxgagtAAAAALYaf9x4Wi0ZWwZToOhhE9s_hzQL';
+  const LOGIN_CAPTCHA_THRESHOLD = 3;
+  const LOGIN_FAIL_PREFIX = 'gnp_login_fail_v5:';
+  let loginCaptchaWidgetId = null;
+  let loginCaptchaSolved = false;
+
+  function normalizedLoginId(){
+    return String(document.getElementById('login-id')?.value || '').trim();
+  }
+
+  function failKey(loginId){
+    return LOGIN_FAIL_PREFIX + encodeURIComponent(String(loginId || '').trim());
+  }
+
+  function getLoginFailCount(loginId){
+    if(!loginId) return 0;
+    try{
+      const n = Number(sessionStorage.getItem(failKey(loginId)) || 0);
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    }catch(_){ return 0; }
+  }
+
+  function setLoginFailCount(loginId,count){
+    if(!loginId) return;
+    try{
+      const n = Math.max(0,Math.floor(Number(count)||0));
+      if(n <= 0) sessionStorage.removeItem(failKey(loginId));
+      else sessionStorage.setItem(failKey(loginId),String(n));
+    }catch(_){}
+  }
+
+  function captchaRequired(loginId){
+    return getLoginFailCount(loginId) >= LOGIN_CAPTCHA_THRESHOLD;
+  }
+
+  function setCaptchaStatus(message,ok=false){
+    const el = document.getElementById('gnp-login-captcha-status');
+    if(!el) return;
+    el.textContent = String(message || '');
+    el.className = ok
+      ? 'text-[10px] text-green-700 mt-2 text-center font-bold'
+      : 'text-[10px] text-gray-500 mt-2 text-center';
+  }
+
+  function waitForCaptchaApi(timeoutMs=8000){
+    return new Promise((resolve,reject)=>{
+      const started = Date.now();
+      const tick = ()=>{
+        if(window.grecaptcha?.enterprise?.render) return resolve(window.grecaptcha.enterprise);
+        if(Date.now()-started >= timeoutMs) return reject(new Error('CAPTCHA 모듈을 불러오지 못했습니다. 네트워크를 확인한 뒤 새로고침해 주세요.'));
+        setTimeout(tick,100);
+      };
+      tick();
+    });
+  }
+
+  async function ensureLoginCaptchaVisible(){
+    const wrap = document.getElementById('gnp-login-captcha-wrap');
+    if(!wrap) return false;
+    wrap.classList.remove('hidden');
+    try{
+      const enterprise = await waitForCaptchaApi();
+      if(loginCaptchaWidgetId === null){
+        loginCaptchaWidgetId = enterprise.render('gnp-login-captcha',{
+          sitekey: LOGIN_CAPTCHA_SITE_KEY,
+          action: 'LOGIN',
+          callback: ()=>{ loginCaptchaSolved = true; setCaptchaStatus('추가 인증이 완료되었습니다. 로그인 버튼을 눌러주세요.',true); },
+          'expired-callback': ()=>{ loginCaptchaSolved = false; setCaptchaStatus('CAPTCHA 인증이 만료되었습니다. 다시 인증해 주세요.'); },
+          'error-callback': ()=>{ loginCaptchaSolved = false; setCaptchaStatus('CAPTCHA를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'); }
+        });
+      }
+      return true;
+    }catch(error){
+      loginCaptchaSolved = false;
+      setCaptchaStatus(error?.message || 'CAPTCHA 모듈 로딩에 실패했습니다.');
+      console.warn('[GNP SECURITY v5] CAPTCHA load failed:',error);
+      return false;
+    }
+  }
+
+  function hideLoginCaptchaIfNotRequired(){
+    const id = normalizedLoginId();
+    const wrap = document.getElementById('gnp-login-captcha-wrap');
+    if(!wrap) return;
+    if(captchaRequired(id)){
+      ensureLoginCaptchaVisible();
+    }else{
+      wrap.classList.add('hidden');
+      loginCaptchaSolved = false;
+    }
+  }
+
+  function resetCaptchaChallenge(){
+    loginCaptchaSolved = false;
+    try{
+      if(loginCaptchaWidgetId !== null && window.grecaptcha?.enterprise?.reset){
+        window.grecaptcha.enterprise.reset(loginCaptchaWidgetId);
+      }
+    }catch(_){}
+    setCaptchaStatus('체크박스 인증을 완료한 뒤 다시 로그인해 주세요.');
+  }
+
+  function isCredentialFailure(error){
+    const code = String(error?.code || '');
+    return code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found') || code.includes('invalid-login-credentials');
+  }
+
+  async function verifyCaptchaBeforeLogin(loginId){
+    if(!captchaRequired(loginId)) return true;
+    await ensureLoginCaptchaVisible();
+    let token = '';
+    try{
+      if(loginCaptchaWidgetId !== null && window.grecaptcha?.enterprise?.getResponse){
+        token = String(window.grecaptcha.enterprise.getResponse(loginCaptchaWidgetId) || '');
+      }
+    }catch(_){}
+    if(!loginCaptchaSolved || !token){
+      alert('비밀번호 입력이 3회 실패했습니다. CAPTCHA 추가 인증을 먼저 완료해 주세요.');
+      return false;
+    }
+    return true;
+  }
 
   function stripSecrets(value){
     const out = {...(value || {})};
@@ -18730,6 +18863,7 @@ import {
     if(!gf?.auth || !gf?.db || typeof gf.internalEmail !== 'function'){
       return alert('Firebase 보안 로그인이 아직 준비되지 않았습니다. 새로고침 후 다시 시도해 주세요.');
     }
+    if(!(await verifyCaptchaBeforeLogin(id))) return;
 
     const button = document.querySelector('#login-box button[onclick*="app.auth.login"]');
     const oldHtml = button?.innerHTML;
@@ -18755,6 +18889,9 @@ import {
         firebaseUid:credential.user.uid
       };
       SECRET_FIELDS.forEach(k => delete user[k]);
+      setLoginFailCount(id,0);
+      resetCaptchaChallenge();
+      document.getElementById('gnp-login-captcha-wrap')?.classList.add('hidden');
       if(typeof window.gnpSecurityV2EnsureUidProfile === 'function'){
         await window.gnpSecurityV2EnsureUidProfile(user, credential.user);
       }
@@ -18764,6 +18901,17 @@ import {
       scrubLocalPasswordCache();
     }catch(error){
       console.error('[GNP SECURITY v1] login failed:', error);
+      if(isCredentialFailure(error)){
+        const nextCount = getLoginFailCount(id) + 1;
+        setLoginFailCount(id,nextCount);
+        if(nextCount >= LOGIN_CAPTCHA_THRESHOLD){
+          resetCaptchaChallenge();
+          ensureLoginCaptchaVisible();
+        }
+      }else if(captchaRequired(id)){
+        // CAPTCHA 통과 후 다른 오류가 발생해도 기존 추가인증 요구 상태는 유지합니다.
+        ensureLoginCaptchaVisible();
+      }
       alert(authErrorMessage(error));
     }finally{
       if(button){ button.disabled = false; button.innerHTML = oldHtml || '관리자 모드로 접속'; }
@@ -18875,11 +19023,21 @@ import {
     btn.onclick = secureProfileSave;
   }
 
+  function bindCaptchaLoginId(){
+    const input = document.getElementById('login-id');
+    if(!input || input.dataset.gnpCaptchaV5 === '1') return;
+    input.dataset.gnpCaptchaV5 = '1';
+    input.addEventListener('input',()=>{ hideLoginCaptchaIfNotRequired(); });
+    input.addEventListener('change',()=>{ hideLoginCaptchaIfNotRequired(); });
+  }
+
   function boot(){
     scrubLocalPasswordCache();
     installSecureLogin();
     patchDbSanitizer();
     bindSecureProfile();
+    bindCaptchaLoginId();
+    hideLoginCaptchaIfNotRequired();
   }
   boot();
   const observer = new MutationObserver(()=>{ installSecureLogin(); patchDbSanitizer(); bindSecureProfile(); });
