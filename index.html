@@ -14565,6 +14565,8 @@ import {
     const app = window.app;
 
     if(!gf?.db || !app?.db || !app?.auth || !app?.ai1) return false;
+    // SECURITY v2: Rules 적용 후에는 인증 전 users/safetyProposals 조회를 시도하지 않습니다.
+    if(!gf?.auth?.currentUser) return false;
 
     installed = true;
 
@@ -14649,10 +14651,11 @@ import {
 
   const timer=setInterval(()=>{
     install().then(ok=>{
-      if(ok || ++tries>300) clearInterval(timer);
+      if(ok) clearInterval(timer);
+      else if(window.gnpFirebase?.auth?.currentUser && ++tries>300) clearInterval(timer);
     }).catch(error=>{
       console.error('[GNP v27] install tick error:',error);
-      if(++tries>300) clearInterval(timer);
+      if(window.gnpFirebase?.auth?.currentUser && ++tries>300) clearInterval(timer);
     });
   },100);
 
@@ -15054,6 +15057,7 @@ import {
   async function start() {
     if(installed) return true;
     if(!window.gnpFirebase?.db) return false;
+    if(!window.gnpFirebase?.auth?.currentUser) return false;
     if(!window.app?.ai1 || !window.app?.db) return false;
 
     /*
@@ -15108,10 +15112,11 @@ import {
    */
   const timer=setInterval(()=>{
     start().then(ok=>{
-      if(ok || ++attempts>300) clearInterval(timer);
+      if(ok) clearInterval(timer);
+      else if(window.gnpFirebase?.auth?.currentUser && ++attempts>300) clearInterval(timer);
     }).catch(error=>{
       console.error('[GNP v37] start error',error);
-      if(++attempts>300) clearInterval(timer);
+      if(window.gnpFirebase?.auth?.currentUser && ++attempts>300) clearInterval(timer);
     });
   },100);
 
@@ -15378,6 +15383,10 @@ import {
       setStatus({stage:"waiting-firebase"});
       return false;
     }
+    if(!window.gnpFirebase?.auth?.currentUser){
+      setStatus({stage:"waiting-auth"});
+      return false;
+    }
 
     if(!getApp()?.ai1){
       setStatus({stage:"waiting-app"});
@@ -15430,7 +15439,8 @@ import {
   let tries = 0;
   const timer = setInterval(async () => {
     const ok = await start();
-    if(ok || ++tries > 300) clearInterval(timer);
+    if(ok) clearInterval(timer);
+    else if(window.gnpFirebase?.auth?.currentUser && ++tries > 300) clearInterval(timer);
   }, 100);
 
   window.addEventListener("beforeunload", () => {
@@ -15790,6 +15800,10 @@ import {
       setStatus({stage:"waiting-firebase"});
       return false;
     }
+    if(!window.gnpFirebase?.auth?.currentUser){
+      setStatus({stage:"waiting-auth"});
+      return false;
+    }
     if(!a?.db || !a?.auth || !a?.ai1){
       setStatus({stage:"waiting-app"});
       return false;
@@ -15852,7 +15866,8 @@ import {
   let tries = 0;
   const timer = setInterval(async () => {
     const ok = await start();
-    if(ok || ++tries > 300) clearInterval(timer);
+    if(ok) clearInterval(timer);
+    else if(window.gnpFirebase?.auth?.currentUser && ++tries > 300) clearInterval(timer);
   }, 100);
 
   // 결재 API는 일부 기존 패치가 늦게 다시 덮어쓸 수 있으므로 잠시 재확인.
@@ -17067,6 +17082,7 @@ import {
   async function start(){
     if(started) return true;
     if(!window.gnpFirebase?.db || !getApp()?.ai1) return false;
+    if(!window.gnpFirebase?.auth?.currentUser) return false;
 
     started = true;
     setStatus({active:false, stage:'starting'});
@@ -17117,7 +17133,8 @@ import {
   let tries = 0;
   const boot = setInterval(async () => {
     const ok = await start();
-    if(ok || ++tries > 300) clearInterval(boot);
+    if(ok) clearInterval(boot);
+    else if(window.gnpFirebase?.auth?.currentUser && ++tries > 300) clearInterval(boot);
   }, 100);
 
   window.addEventListener('beforeunload', () => {
@@ -18589,6 +18606,9 @@ import {
         firebaseUid:credential.user.uid
       };
       SECRET_FIELDS.forEach(k => delete user[k]);
+      if(typeof window.gnpSecurityV2EnsureUidProfile === 'function'){
+        await window.gnpSecurityV2EnsureUidProfile(user, credential.user);
+      }
       a.auth.currentUser = user;
       a.ui.initSystem();
       cleanupFirestorePasswords(user).catch(()=>{});
@@ -18719,6 +18739,218 @@ import {
   window.addEventListener('focus',boot);
   document.addEventListener('visibilitychange',()=>{ if(!document.hidden) boot(); });
   console.log('[GNP SECURITY v1] Firebase Authentication final authority loaded');
+})();
+</script>
+
+
+
+<!-- ============================================================
+     GNP SECURITY v2 - FIRESTORE RULES / TEAM AUTHORITY COMPATIBILITY
+     - Guest: Firebase Anonymous Auth 후 기존 Guest UI 진입
+     - 신규 안전제안에 createdByUid를 서버권한용으로 기록
+     - 일반 사용자의 팀/로그인ID 자기변경 차단 (admin 권한설정에서만 변경)
+     - users/{uid} 인증 매핑 누락 시 자기 UID 문서만 안전하게 보강
+     - 기존 반장/조장/팀장 소속팀 권한 및 HSE/특수계정 전사권한 UI는 변경하지 않음
+     ============================================================ -->
+<script type="module" id="gnp-security-v2-firestore-rules-client">
+import {
+  signInAnonymously,
+  signOut
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+
+(function(){
+  'use strict';
+  const SPECIAL_FULL_IDS = new Set(['admin','박종수','신제우','이정숙','박신환']);
+
+  const getApp = () => {
+    try { if(typeof app !== 'undefined' && app) return app; } catch(_) {}
+    return window.app || null;
+  };
+
+  function aliases(user){
+    return [user?.id,user?.legacyId,user?.name].map(v=>String(v||'').trim()).filter(Boolean);
+  }
+
+  function isAdminAccount(user){
+    return aliases(user).includes('admin');
+  }
+
+  function isAnonymousFirebaseUser(user){
+    return !!user && user.isAnonymous === true;
+  }
+
+  // Security Rules가 users/{request.auth.uid}를 안전한 UID→사번/성명 매핑으로 사용합니다.
+  // 이미 존재하면 절대 role/team을 덮어쓰지 않습니다.
+  window.gnpSecurityV2EnsureUidProfile = async function(profile, firebaseUser){
+    const gf = window.gnpFirebase;
+    if(!gf?.db || !firebaseUser || firebaseUser.isAnonymous) return true;
+    const ref = doc(gf.db,'users',firebaseUser.uid);
+    const existing = await getDoc(ref);
+    if(existing.exists()) return true;
+    const legacyId = String(profile?.legacyId || profile?.id || '').trim();
+    if(!legacyId) throw new Error('Firebase UID 보안 매핑에 사용할 로그인 ID가 없습니다.');
+    await setDoc(ref,{
+      legacyId,
+      id:legacyId,
+      name:String(profile?.name || legacyId),
+      team:String(profile?.team || '미지정'),
+      role:String(profile?.role || '반원'),
+      active:profile?.active !== false,
+      firebaseEmail:String(firebaseUser.email || ''),
+      securitySchema:2,
+      securityMappedAt:serverTimestamp()
+    },{merge:false});
+    return true;
+  };
+
+  async function secureGuestLogin(){
+    const gf = window.gnpFirebase;
+    const a = getApp();
+    if(!a?.auth || !a?.ui || !gf?.auth){
+      return alert('Firebase Guest 인증이 아직 준비되지 않았습니다. 새로고침 후 다시 시도해 주세요.');
+    }
+    try{
+      try { await signOut(gf.auth); } catch(_) {}
+      const credential = await signInAnonymously(gf.auth);
+      a.auth.currentUser = {
+        id:'guest', legacyId:'guest', name:'Guest', team:'안전제안', role:'GUEST',
+        modules:[], firebaseUid:credential.user.uid, firebaseAnonymous:true
+      };
+      a.ui.initSystem();
+    }catch(error){
+      console.error('[GNP SECURITY v2] Guest anonymous auth failed:',error);
+      const code=String(error?.code||'');
+      if(code.includes('operation-not-allowed')){
+        alert('Firebase Authentication에서 익명(Anonymous) 로그인을 먼저 활성화해 주세요.');
+      }else{
+        alert('Guest Firebase 인증에 실패했습니다.\n\n'+(error?.message||error));
+      }
+    }
+  }
+
+  function installGuestAuth(){
+    const a=getApp();
+    if(!a?.auth) return false;
+    if(a.auth.loginGuest?.__gnpSecurityV2) return true;
+    secureGuestLogin.__gnpSecurityV2=true;
+    a.auth.loginGuest=secureGuestLogin;
+    return true;
+  }
+
+  // 새 문서 생성 순간에 Rules가 신뢰할 수 있는 Firebase UID와 기존 작성자/팀 정보를 같이 저장합니다.
+  function installProposalCreateStamp(){
+    const a=getApp(), gf=window.gnpFirebase;
+    if(!a?.ai1 || !gf) return false;
+
+    if(typeof a.ai1.save==='function' && !a.ai1.save.__gnpSecurityV2CreateFlag){
+      const base=a.ai1.save.bind(a.ai1);
+      const wrapped=async function(){
+        const creating=!this.editingId;
+        window.__gnpSecurityV2Creating=creating;
+        try { return await base(...arguments); }
+        finally { window.__gnpSecurityV2Creating=false; }
+      };
+      wrapped.__gnpSecurityV2CreateFlag=true;
+      a.ai1.save=wrapped;
+    }
+
+    if(typeof gf.writeSafetyProposal==='function' && !gf.writeSafetyProposal.__gnpSecurityV2Stamp){
+      const baseWriter=gf.writeSafetyProposal.bind(gf);
+      const writer=async function(row){
+        if(window.__gnpSecurityV2Creating && row && gf.auth?.currentUser){
+          const me=getApp()?.auth?.currentUser || {};
+          row.createdByUid=String(gf.auth.currentUser.uid||'');
+          row.authorId=String(me.id||me.legacyId||row.authorId||'');
+          row.author=String(me.name||me.id||row.author||'');
+          row.team=String(me.team||row.team||'미지정');
+        }
+        return baseWriter(row);
+      };
+      writer.__gnpSecurityV2Stamp=true;
+      gf.writeSafetyProposal=writer;
+    }
+    return true;
+  }
+
+  // 서버 권한의 기준이 되는 team/role/loginId는 사용자가 스스로 바꾸지 못하게 합니다.
+  function lockProfileAuthorityFields(){
+    const a=getApp();
+    const me=a?.auth?.currentUser || {};
+    if(!me.id || me.id==='guest') return;
+    const admin=isAdminAccount(me);
+    const name=document.getElementById('profile-name-id');
+    const team=document.getElementById('profile-team');
+    const note=document.getElementById('profile-name-note');
+    if(!admin){
+      if(name){
+        name.value=String(me.name||me.id||'');
+        name.readOnly=true;
+        name.disabled=true;
+        name.title='로그인 ID/성명 변경은 관리자에게 요청해 주세요.';
+      }
+      if(team){
+        team.value=String(me.team||'');
+        team.disabled=true;
+        team.title='소속 팀 변경은 admin 권한설정에서만 가능합니다.';
+      }
+      if(note) note.textContent='로그인 ID와 소속 팀은 보안을 위해 admin 권한설정에서만 변경할 수 있습니다.';
+    }
+
+    const save=document.getElementById('profile-settings-save');
+    if(save && !save.__gnpSecurityV2Wrapped){
+      const base=save.onclick;
+      if(typeof base==='function'){
+        save.onclick=async function(event){
+          const current=getApp()?.auth?.currentUser || {};
+          if(!isAdminAccount(current)){
+            const n=document.getElementById('profile-name-id');
+            const t=document.getElementById('profile-team');
+            if(n){ n.disabled=false; n.readOnly=false; n.value=String(current.name||current.id||''); }
+            if(t){ t.disabled=false; t.value=String(current.team||''); }
+            try { return await base.call(this,event); }
+            finally { setTimeout(lockProfileAuthorityFields,0); }
+          }
+          return base.call(this,event);
+        };
+        save.__gnpSecurityV2Wrapped=true;
+      }
+    }
+  }
+
+  function exposeStatus(){
+    const a=getApp(), me=a?.auth?.currentUser || {};
+    window.gnpSecurityV2Status={
+      active:true,
+      firebaseAuthenticated:!!window.gnpFirebase?.auth?.currentUser,
+      anonymous:isAnonymousFirebaseUser(window.gnpFirebase?.auth?.currentUser),
+      user:String(me.id||''),
+      role:String(me.role||''),
+      team:String(me.team||''),
+      specialFull:aliases(me).some(id=>SPECIAL_FULL_IDS.has(id)) || String(me.role||'')==='HSE',
+      updatedAt:new Date().toISOString()
+    };
+  }
+
+  function boot(){
+    installGuestAuth();
+    installProposalCreateStamp();
+    lockProfileAuthorityFields();
+    exposeStatus();
+  }
+
+  boot();
+  const observer=new MutationObserver(boot);
+  observer.observe(document.body,{childList:true,subtree:true});
+  [100,300,700,1500,3000,7000,12000].forEach(ms=>setTimeout(boot,ms));
+  window.addEventListener('focus',boot);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)boot();});
+  console.log('[GNP SECURITY v2] Firestore Rules / team authority compatibility loaded');
 })();
 </script>
 
