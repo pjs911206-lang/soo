@@ -8728,8 +8728,16 @@ const app = {
       description.style.minHeight = '230px';
     }
 
-    /* 사진을 선택하지 않은 상태에서도 파일명 영역 오른쪽에 편집 버튼이 나란히 표시됩니다. */
-    makeUploadRow('ai1-files', 'ai1-photo-edit-btn');
+    /* 현장 사진 3개 버튼은 항상 같은 행에 유지합니다. 이전 코드가 편집 버튼을 업로드 행으로 이동시키지 못하게 합니다. */
+    const photoActions = document.getElementById('ai1-photo-actions');
+    const attachBtn = document.getElementById('ai1-photo-attach-btn');
+    const cameraBtn = document.getElementById('ai1-photo-camera-btn');
+    const editBtn = document.getElementById('ai1-photo-edit-btn');
+    if (photoActions) {
+      [attachBtn, cameraBtn, editBtn].filter(Boolean).forEach(btn => photoActions.appendChild(btn));
+    } else {
+      makeUploadRow('ai1-files', 'ai1-photo-edit-btn');
+    }
     makeUploadRow('ai1-improvement-files', 'ai1-improvement-photo-edit-btn');
   }
 
@@ -8803,9 +8811,14 @@ const app = {
     });
   }
 
-  async function compactAll(records, maxSide, quality) {
+  async function compactAll(records, maxSide, quality, targetId = '') {
+    const wantedId = String(targetId || '');
     return Promise.all(records.map(async (record) => {
       const copy = { ...record };
+      // SECURITY v4.2: 현재 저장/수정 중인 제안 1건만 다시 압축합니다.
+      // 기존 제안 전체를 재압축하면 사진 base64가 달라져 다른 작성자/부서 문서까지
+      // 변경된 것으로 판단되어 Firestore Rules에 의해 정상적으로 거부될 수 있습니다.
+      if (wantedId && String(copy.id || '') !== wantedId) return copy;
       copy.editedBeforePhoto = await compactImage(copy.editedBeforePhoto || copy.photoDataUrl || '', maxSide, quality);
       copy.editedAfterPhoto = await compactImage(copy.editedAfterPhoto || copy.improvementPhotoDataUrl || '', maxSide, quality);
       copy.photoDataUrl = copy.editedBeforePhoto;
@@ -8815,12 +8828,12 @@ const app = {
     }));
   }
 
-  async function persist(records) {
-    // 기존 데이터까지 단계적으로 압축하여 브라우저 저장공간 오류를 최대한 방지합니다.
+  async function persist(records, targetId = '') {
+    // 현재 저장 대상 1건의 사진만 단계적으로 압축합니다. 기존 Firestore 행은 절대 재가공하지 않습니다.
     const profiles = [[720, .72], [540, .62], [400, .52]];
     let lastError;
     for (const [maxSide, quality] of profiles) {
-      const compressed = await compactAll(records, maxSide, quality);
+      const compressed = await compactAll(records, maxSide, quality, targetId);
       try {
         ai.saveData(compressed);
         return compressed;
@@ -8909,7 +8922,7 @@ const app = {
       if (existingIndex >= 0) records[existingIndex] = record;
       else records.unshift(record);
 
-      records = await persist(records);
+      records = await persist(records, record.id);
 
       // 저장된 실제 데이터 기준으로 편집 사진 field를 다시 동기화합니다.
       const saved = records.find((item) => String(item.id) === String(record.id));
@@ -15365,14 +15378,19 @@ import {
           const old = beforeMap.get(id);
 
           if(JSON.stringify(clean(old || {})) !== JSON.stringify(clean(row))){
-            await writeOne(row);
+            try {
+              await writeOne(row);
+            } catch (error) {
+              try { error.gnpProposalId = id; } catch(_) {}
+              throw error;
+            }
           }
         }
 
         // 중요: 목록 차이(diff)를 이용한 deleteDoc는 금지.
         // 삭제는 사용자가 실제 삭제 버튼을 눌렀을 때의 명시적 삭제 경로에서만 수행한다.
       }).catch(error => {
-        alert("안전제안 Firestore 동기화 실패\n\n" + (error?.message || error));
+        alert("안전제안 Firestore 동기화 실패\n\n" + (error?.gnpProposalId ? "제안 ID: " + error.gnpProposalId + "\n" : "") + (error?.message || error));
       });
 
       return true;
@@ -19062,5 +19080,13 @@ import {
 })();
 </script>
 
+
+<!-- GNP SECURITY v4.2
+     - App Check Monitoring 유지
+     - 신규/수정 안전제안 저장 시 현재 대상 1건만 이미지 압축 및 Firestore 변경 감지
+     - 타 부서/타 작성자 기존 제안 불필요 재저장 방지
+     - 현장사진 첨부/사진찍기/편집하기 3버튼 한 줄 복구
+     - Firestore Rules v2.1 변경 없음
+-->
 </body>
 </html>
