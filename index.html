@@ -18862,11 +18862,10 @@ import {
     const gf = window.gnpFirebase;
     if(!gf?.db || !firebaseUser || firebaseUser.isAnonymous) return true;
     const ref = doc(gf.db,'users',firebaseUser.uid);
-    const existing = await getDoc(ref);
-    if(existing.exists()) return true;
     const legacyId = String(profile?.legacyId || profile?.id || '').trim();
     if(!legacyId) throw new Error('Firebase UID 보안 매핑에 사용할 로그인 ID가 없습니다.');
-    await setDoc(ref,{
+
+    const canonical = {
       legacyId,
       id:legacyId,
       name:String(profile?.name || legacyId),
@@ -18874,7 +18873,42 @@ import {
       role:String(profile?.role || '반원'),
       active:profile?.active !== false,
       firebaseEmail:String(firebaseUser.email || ''),
-      securitySchema:2,
+      securitySchema:3
+    };
+
+    const existing = await getDoc(ref);
+    if(existing.exists()){
+      const current = existing.data() || {};
+      const authorityMismatch =
+        String(current.legacyId || '') !== canonical.legacyId ||
+        String(current.id || '') !== canonical.id ||
+        String(current.name || '') !== canonical.name ||
+        String(current.team || '') !== canonical.team ||
+        String(current.role || '') !== canonical.role ||
+        (current.active !== false) !== canonical.active ||
+        String(current.firebaseEmail || '') !== canonical.firebaseEmail;
+
+      if(!authorityMismatch) return true;
+
+      // SECURITY v2.3: 오래된 UID 미러는 canonical users/{legacyId} 값으로만 복구합니다.
+      // Firestore Rules v2.2가 동일 canonical 문서 + 동일 Firebase 이메일을 다시 검증하므로
+      // 사용자가 임의로 role/team을 올리는 경로로는 사용할 수 없습니다.
+      try{
+        await setDoc(ref,{
+          ...canonical,
+          securityRepairedAt:serverTimestamp()
+        },{merge:true});
+        console.log('[GNP SECURITY v2.3] UID authority mirror repaired:', legacyId);
+      }catch(error){
+        // 기존 UID 미러 자체는 존재하므로 로그인은 유지합니다.
+        // 지정 전사권한 계정은 Rules v2.2의 Firebase Auth 이메일 + canonical active 검증으로 안전하게 보완됩니다.
+        console.warn('[GNP SECURITY v2.3] UID mirror repair deferred:', error?.message || error);
+      }
+      return true;
+    }
+
+    await setDoc(ref,{
+      ...canonical,
       securityMappedAt:serverTimestamp()
     },{merge:false});
     return true;
