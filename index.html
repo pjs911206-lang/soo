@@ -18879,6 +18879,16 @@ import {
     const existing = await getDoc(ref);
     if(existing.exists()){
       const current = existing.data() || {};
+      window.__gnpV44UidDiag = {
+        uid:String(firebaseUser.uid||''),
+        email:String(firebaseUser.email||''),
+        canonical:{...canonical},
+        current:{
+          legacyId:String(current.legacyId||''), id:String(current.id||''), name:String(current.name||''),
+          team:String(current.team||''), role:String(current.role||''), active:current.active !== false,
+          firebaseEmail:String(current.firebaseEmail||'')
+        }
+      };
       const authorityMismatch =
         String(current.legacyId || '') !== canonical.legacyId ||
         String(current.id || '') !== canonical.id ||
@@ -18907,6 +18917,7 @@ import {
       return true;
     }
 
+    window.__gnpV44UidDiag = { uid:String(firebaseUser.uid||''), email:String(firebaseUser.email||''), canonical:{...canonical}, current:null };
     await setDoc(ref,{
       ...canonical,
       securityMappedAt:serverTimestamp()
@@ -18985,6 +18996,20 @@ import {
             };
           });
         }
+        try{
+          const candidate=(Array.isArray(rows)?rows:[]).find(r=>r && String(r.id||'').startsWith('AI-'));
+          const gfNow=window.gnpFirebase;
+          const meNow=getApp()?.auth?.currentUser || {};
+          if(candidate){
+            window.__gnpV44ProposalDiag={
+              id:String(candidate.id||''), createdByUid:String(candidate.createdByUid||''),
+              authorId:String(candidate.authorId||''), team:String(candidate.team||''),
+              authUid:String(gfNow?.auth?.currentUser?.uid||''), authEmail:String(gfNow?.auth?.currentUser?.email||''),
+              isAnonymous:!!gfNow?.auth?.currentUser?.isAnonymous,
+              appUserId:String(meNow.id||meNow.legacyId||''), appRole:String(meNow.role||''), appTeam:String(meNow.team||'')
+            };
+          }
+        }catch(_){}
         return baseSaveData(rows);
       };
       stampedSaveData.__gnpSecurityV22PreStamp=true;
@@ -19122,5 +19147,47 @@ import {
      - 현장사진 첨부/사진찍기/편집하기 3버튼 한 줄 복구
      - Firestore Rules v2.1 변경 없음
 -->
+
+<script id="gnp-security-v44-mobile-permission-diagnostic">
+(function(){
+  'use strict';
+  if(window.__gnpV44AlertPatched) return;
+  window.__gnpV44AlertPatched=true;
+  const baseAlert=window.alert.bind(window);
+  const short=v=>{v=String(v||''); return v.length>18?v.slice(0,10)+'…'+v.slice(-5):v;};
+  window.alert=function(message){
+    try{
+      const text=String(message||'');
+      if(/안전제안 Firestore 동기화 실패|Missing or insufficient permissions/i.test(text)){
+        const gf=window.gnpFirebase||{};
+        const fu=gf.auth?.currentUser||{};
+        const a=(window.app||{}).auth?.currentUser||{};
+        const p=window.__gnpV44ProposalDiag||{};
+        const u=window.__gnpV44UidDiag||{};
+        const cur=u.current||{};
+        const can=u.canonical||{};
+        const extra=[
+          '',
+          '[보안 v4.4 진단]',
+          'App Check: '+String(gf.appCheckStatus?.()||'unknown'),
+          'Firebase UID: '+short(fu.uid),
+          'Firebase email: '+String(fu.email||'(anonymous)'),
+          'Anonymous: '+String(!!fu.isAnonymous),
+          '앱 계정: '+String(a.id||a.legacyId||'')+' / '+String(a.role||'')+' / '+String(a.team||''),
+          '제안 ID: '+String(p.id||''),
+          '제안 createdByUid: '+short(p.createdByUid),
+          '제안 authorId/team: '+String(p.authorId||'')+' / '+String(p.team||''),
+          'UID 일치: '+String(!!p.createdByUid && p.createdByUid===String(fu.uid||'')),
+          'UID 프로필: '+String(cur.legacyId||'(없음)')+' / '+String(cur.role||'')+' / '+String(cur.team||'')+' / active='+String(cur.active),
+          '기준 프로필: '+String(can.legacyId||'')+' / '+String(can.role||'')+' / '+String(can.team||'')+' / active='+String(can.active)
+        ].join('\n');
+        return baseAlert(text+extra);
+      }
+    }catch(_){ }
+    return baseAlert(message);
+  };
+})();
+</script>
+
 </body>
 </html>
