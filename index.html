@@ -1072,13 +1072,12 @@
                             <h4 class="font-black text-sky-800 text-sm"><i class="fas fa-cloud mr-2"></i>온라인 AI 연결</h4>
                             <span id="ai1-key-status" class="text-[11px] px-2 py-1 rounded-full bg-slate-200 text-slate-600">API 키 미입력</span>
                         </div>
-                        <p class="text-[11px] text-sky-800 mt-1 mb-2">OpenRouter의 무료 모델 라우터를 사용합니다. API 키를 입력한 뒤 연결 확인을 진행해 주세요. 이 키는 현재 브라우저에만 저장됩니다.</p>
+                        <p class="text-[11px] text-sky-800 mt-1 mb-2">OpenRouter API 키는 저장하지 않습니다. AI 기능을 사용할 때마다 직접 입력하며, 요청을 시작하면 입력칸에서 즉시 제거됩니다.</p>
                         <div class="flex gap-2">
-                            <input id="ai1-apikey" type="password" class="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="sk-or-v1-...">
-                            <button onclick="app.ai1.saveKey()" class="px-3 py-2 bg-sky-700 hover:bg-sky-800 text-white rounded-lg text-xs font-bold whitespace-nowrap">키 저장</button>
+                            <input id="ai1-apikey" type="password" autocomplete="off" class="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="사용할 때마다 API 키 입력">
                             <button onclick="app.ai1.testConnection()" class="px-3 py-2 border border-sky-300 text-sky-800 hover:bg-sky-100 rounded-lg text-xs font-bold whitespace-nowrap">연결 확인</button>
                         </div>
-                        <p id="ai1-connection-help" class="text-[10px] text-slate-500 mt-2">OpenRouter 계정에서 API 키를 발급한 후 입력해 주세요. 무료 모델은 이용량·가용성 제한이 있을 수 있습니다.</p>
+                        <p id="ai1-connection-help" class="text-[10px] text-slate-500 mt-2">키는 localStorage·sessionStorage·Firestore에 저장되지 않습니다. 연결 확인에도 키를 1회 사용한 뒤 폐기하므로 AI 실행 전 다시 입력해야 합니다.</p>
                     </div>
                     <div class="bg-white border rounded-2xl shadow-sm p-6">
                         <h4 class="font-black text-slate-800"><i class="fas fa-camera text-blue-700 mr-2"></i>1. 현장 정보 입력</h4>
@@ -1925,21 +1924,22 @@ const app = {
         getData: () => JSON.parse(localStorage.getItem('gnp_ai1_proposals') || '[]'),
         saveData: (data) => localStorage.setItem('gnp_ai1_proposals', JSON.stringify(data)),
         esc: (text) => String(text || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])),
-        getKey: () => localStorage.getItem('gnp_openrouter_key') || '',
-        saveKey: () => {
-            const value = document.getElementById('ai1-apikey').value.trim();
-            if(value) localStorage.setItem('gnp_openrouter_key', value);
-            else localStorage.removeItem('gnp_openrouter_key');
-            app.ai1.refreshKeyStatus();
+        getKey: () => document.getElementById('ai1-apikey')?.value?.trim() || '',
+        takeKey: () => {
+            const input = document.getElementById('ai1-apikey');
+            const value = input?.value?.trim() || '';
+            if(input) input.value = '';
+            requestAnimationFrame(() => app.ai1.refreshKeyStatus());
+            return value;
         },
+        // 보안 3단계 무료형: 호환성을 위한 함수명만 유지하며 어떤 저장소에도 기록하지 않습니다.
+        saveKey: () => app.ai1.refreshKeyStatus(),
         refreshKeyStatus: () => {
             const badge = document.getElementById('ai1-key-status');
             if(!badge) return;
             const key = app.ai1.getKey();
-            badge.textContent = key ? '키 저장됨 · 연결 확인 필요' : 'API 키 미입력';
+            badge.textContent = key ? 'API 키 입력됨 · 사용 후 폐기' : 'API 키 미입력';
             badge.className = `text-[11px] px-2 py-1 rounded-full ${key ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'}`;
-            const input = document.getElementById('ai1-apikey');
-            if(input && key && !input.value) input.value = key;
         },
         setConnectionStatus: (message, good) => {
             const badge = document.getElementById('ai1-key-status');
@@ -1949,12 +1949,12 @@ const app = {
                 badge.className = `text-[11px] px-2 py-1 rounded-full ${good ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`;
             }
             if(help) help.textContent = good
-                ? 'API 키가 확인되었습니다. 이제 현장 정보를 입력하고 AI 분석을 실행할 수 있습니다.'
-                : '키를 다시 확인해 주세요. 무료 모델은 이용량·가용성 제한이 있을 수 있습니다.';
+                ? 'API 키가 확인되었습니다. 보안을 위해 입력값은 폐기되었습니다. AI 실행 전에 키를 다시 입력해 주세요.'
+                : '키를 다시 확인해 주세요. 입력값은 저장되지 않았으며 이미 폐기되었습니다.';
         },
         testConnection: async () => {
-            const key = app.ai1.getKey();
-            if(!key) return alert('먼저 OpenRouter API 키를 입력하고 저장해 주세요.');
+            const key = app.ai1.takeKey();
+            if(!key) return alert('OpenRouter API 키를 입력해 주세요. 키는 저장되지 않습니다.');
             app.ai1.setConnectionStatus('연결 확인 중...', false);
             try {
                 const res = await fetch('https://openrouter.ai/api/v1/key', {
@@ -2029,7 +2029,7 @@ const app = {
             }
         },
         callOnlineAI: async (userText, focusText, isRegeneration = false) => {
-            const key = app.ai1.getKey();
+            const key = app.ai1.takeKey();
             if(!key) throw new Error('NO_KEY');
             await app.ai1.ensureImageDataReady();
             const system = `당신은 대한민국 제조업 사업장의 HSE(안전·보건·환경) 전문가입니다. 담당자가 적은 현장 정보${app.ai1.imageData.length ? '와 첨부 사진' : ''}을 근거로 실행 가능한 안전제안서 초안을 작성하십시오.
@@ -2167,7 +2167,7 @@ const app = {
         },
         readableError: (err) => {
             const msg = String(err?.message || err);
-            if(msg === 'NO_KEY') return '온라인 AI API 키가 없습니다. API 키를 저장하고 연결 확인을 진행해 주세요.';
+            if(msg === 'NO_KEY') return '온라인 AI API 키가 없습니다. 사용할 때마다 API 키를 직접 입력해 주세요.';
             if(msg.includes('API_401') || msg.includes('API_403')) return 'API 키가 유효하지 않거나 사용 권한이 없습니다. OpenRouter API 키를 다시 확인해 주세요.';
             if(msg.includes('API_429')) return '무료 모델의 요청 한도 또는 일시적인 가용성 제한에 도달했습니다. 잠시 후 다시 시도해 주세요.';
             if(msg.includes('API_402')) return '현재 계정에서 모델 호출이 허용되지 않았습니다. OpenRouter 계정의 무료 모델 사용 가능 여부를 확인해 주세요.';
@@ -2177,7 +2177,7 @@ const app = {
             const location = document.getElementById('ai1-location').value.trim();
             const desc = document.getElementById('ai1-description').value.trim();
             if(!location && !desc && !app.ai1.images.length) return alert('장소·설비명, 현재 현황 또는 사진 중 하나 이상을 입력해 주세요.');
-            if(!app.ai1.getKey()) return alert('온라인 AI API 키를 입력·저장한 뒤 연결 확인을 진행해 주세요.');
+            if(!app.ai1.getKey()) return alert('온라인 AI API 키를 입력해 주세요. 키는 저장되지 않으며 이번 요청에만 사용됩니다.');
             app.ai1.regenCount = 0;
             const status = document.getElementById('ai1-ai-status');
             const focusMap = { balanced:'즉시조치와 근본대책의 균형', quick:'즉시 실행 가능한 대책 우선', root:'설비 개선과 재발방지 중심', cost:'위험 저감 효과와 비용 효율의 균형' };
@@ -2199,7 +2199,7 @@ const app = {
             const location = document.getElementById('ai1-location').value.trim();
             const desc = document.getElementById('ai1-description').value.trim();
             if(!document.getElementById('ai1-measure').value.trim()) return alert('먼저 AI 분석·안전제안서 작성을 실행해 주세요.');
-            if(!app.ai1.getKey()) return alert('온라인 AI API 키를 입력·저장한 뒤 연결 확인을 진행해 주세요.');
+            if(!app.ai1.getKey()) return alert('온라인 AI API 키를 입력해 주세요. 키는 저장되지 않으며 이번 요청에만 사용됩니다.');
             app.ai1.regenCount++;
             const note = document.getElementById('ai1-option-note');
             const focusMap = { balanced:'즉시조치와 근본대책의 균형', quick:'즉시 실행 가능한 대책 우선', root:'설비 개선과 재발방지 중심', cost:'위험 저감 효과와 비용 효율의 균형' };
@@ -8483,8 +8483,8 @@ const app = {
     const type=$('ai1-type')?.value.trim() || '';
     const status=$('ai1-help-status'), results=$('ai1-help-results'), button=$('ai1-help-button');
     if(!location && !desc && !(ai.images||[]).length) { alert('장소·설비명, 현황 또는 사진 중 하나 이상을 입력해 주세요.'); return; }
-    const key=typeof ai.getKey==='function'?ai.getKey():'';
-    if(!key){ alert('온라인 AI 연결에서 OpenRouter API 키를 입력하고 저장해 주세요.'); return; }
+    const key=typeof ai.takeKey==='function'?ai.takeKey():(typeof ai.getKey==='function'?ai.getKey():'');
+    if(!key){ alert('온라인 AI 연결에서 OpenRouter API 키를 입력해 주세요. 키는 이번 요청에만 사용됩니다.'); return; }
     if(status)status.textContent='AI가 참고용 개선대안 3가지를 작성하고 있습니다...';
     if(button){button.disabled=true;button.classList.add('opacity-60','cursor-wait');}
     if(results) results.innerHTML='';
@@ -8522,7 +8522,7 @@ const app = {
       if(status)status.textContent='참고용 개선대안 3가지를 생성했습니다. 필요한 대안을 선택해 적용하세요.';
     }catch(err){
       console.error(err);
-      if(status)status.textContent='AI 도움 요청에 실패했습니다. API 키·인터넷 연결·무료 모델 가용성을 확인해 주세요.';
+      if(status)status.textContent='AI 도움 요청에 실패했습니다. API 키·인터넷 연결·무료 모델 가용성을 확인한 뒤 키를 다시 입력해 주세요.';
     }finally{
       if(button){button.disabled=false;button.classList.remove('opacity-60','cursor-wait');}
     }
@@ -17540,7 +17540,7 @@ import {
 
 <!-- GNP v58: 관리자 전용 AI 유사·중복 제안 판독기
      - 사용 가능 계정: admin, 박종수, 신제우, 이정숙, 박신환
-     - API 키는 해당 브라우저 localStorage에만 저장
+     - API 키는 저장하지 않고 판독 실행 시마다 직접 입력
      - 로컬 후보 선별 -> OpenRouter 의미 판독 -> Firestore proposal 문서에 결과 merge
      - 판독 결과는 전 사용자 안전제안 관리/전체보기에서 읽기 전용 배지로 표시
      - 관리자 수동 확정(중복/유사/중복아님) 지원
@@ -17575,7 +17575,6 @@ import {
   const ALLOWED_IDS = new Set(['admin','박종수','신제우','이정숙','박신환']);
   const FS_URL = 'https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js';
   const PROPOSAL_COLLECTION = 'safetyProposals';
-  const KEY_STORAGE = 'gnp_openrouter_key';
   const BATCH_SIZE = 1;
   const CANDIDATE_LIMIT = 5;
   let fs = null;
@@ -17695,11 +17694,18 @@ import {
     };
   }
 
-  function getKey(){ return t(localStorage.getItem(KEY_STORAGE) || getApp()?.ai1?.getKey?.() || ''); }
+  function getKey(){ return t(document.getElementById('gnp-v57-key')?.value || ''); }
+  function takeKey(){
+    const input=document.getElementById('gnp-v57-key');
+    const key=t(input?.value || '');
+    if(input) input.value='';
+    updateKeyState();
+    return key;
+  }
   function saveKeyValue(value){
-    const key=t(value);
-    if(key) localStorage.setItem(KEY_STORAGE,key);
-    else localStorage.removeItem(KEY_STORAGE);
+    // 과거 함수명 호환용: 저장하지 않고 현재 입력칸에만 반영합니다.
+    const input=document.getElementById('gnp-v57-key');
+    if(input) input.value=t(value);
     updateKeyState();
   }
 
@@ -17822,8 +17828,7 @@ import {
     return parsed;
   }
 
-  async function callAiOnce(batchPayload){
-    const key=getKey();
+  async function callAiOnce(batchPayload,key){
     if(!key) throw new Error('OpenRouter API 키가 없습니다.');
     const system = `당신은 산업안전 개선제안 중복성 검토자입니다.
 목표는 문장 단어가 비슷한지 보는 것이 아니라, "위험 상황"과 "개선대책의 작동 원리"가 실질적으로 같은지 판정하는 것입니다.
@@ -17892,11 +17897,11 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
     }
   }
 
-  async function callAi(batchPayload){
+  async function callAi(batchPayload,key){
     let lastError=null;
     for(let attempt=1;attempt<=3;attempt++){
       try{
-        return await callAiOnce(batchPayload);
+        return await callAiOnce(batchPayload,key);
       }catch(error){
         lastError=error;
         const msg=t(error?.message||error);
@@ -17985,7 +17990,8 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
   async function runScan(mode){
     if(!isAllowed()) return alert('AI 유사제안 판독 권한이 없습니다.');
     if(running) return;
-    if(!getKey()) return alert('먼저 OpenRouter API 키를 입력하고 저장해 주세요.');
+    let runKey=takeKey();
+    if(!runKey) return alert('OpenRouter API 키를 입력해 주세요. 키는 판독 실행 1회 동안만 사용됩니다.');
 
     const a=getApp();
     const all=(a?.ai1?.getData?.()||[]).filter(x=>t(x?.id));
@@ -18027,7 +18033,7 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
           updateProgress(done+failed,targets.length,flagged,`AI 의미 판독 중 · ${payload.map(x=>x.target.id).join(', ')}`);
           let aiResponse=null;
           try{
-            aiResponse=await callAi(payload);
+            aiResponse=await callAi(payload,runKey);
           }catch(error){
             const errorText=t(error?.message||error);
             console.error('[GNP v58] duplicate item scan:',error);
@@ -18078,6 +18084,10 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
       setStatusText(`판독 중 오류: ${t(error?.message||error).slice(0,220)}`,false);
       alert(`AI 유사제안 판독 중 오류가 발생했습니다.\n\n${t(error?.message||error).slice(0,320)}`);
     }finally{
+      runKey='';
+      const keyInput=document.getElementById('gnp-v57-key');
+      if(keyInput) keyInput.value='';
+      updateKeyState();
       running=false; setRunningUi(false); renderStats(); renderAdminResults();
       try{ a?.ai1?.render?.(); }catch(_){ }
     }
@@ -18226,13 +18236,12 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
                 <input id="gnp-v57-key" type="password" autocomplete="off" placeholder="sk-or-v1-..." class="mt-1 w-full h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-200">
               </label>
               <div class="flex flex-wrap gap-2">
-                <button id="gnp-v57-key-save" type="button" class="h-10 rounded-lg border border-indigo-200 bg-white px-4 text-xs font-black text-indigo-700">키 저장</button>
                 <button id="gnp-v57-key-test" type="button" class="h-10 rounded-lg border border-slate-200 bg-white px-4 text-xs font-black text-slate-700">연결 확인</button>
               </div>
             </div>
             <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
               <span id="gnp-v57-key-state" class="rounded-full bg-slate-200 px-2 py-1 font-bold text-slate-600">API 키 미입력</span>
-              <span class="text-slate-500">API 키는 Firestore에 저장하지 않고 이 브라우저에만 저장합니다.</span>
+              <span class="text-slate-500">API 키는 어떤 저장소에도 기록하지 않습니다. 판독 실행 1회 동안만 사용 후 폐기합니다.</span>
             </div>
           </div>
 
@@ -18258,15 +18267,15 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
       </div>`;
     document.body.appendChild(modal);
 
-    const close=()=>{modal.classList.remove('open');modal.setAttribute('aria-hidden','true');};
+    const close=()=>{const input=document.getElementById('gnp-v57-key');if(input)input.value='';updateKeyState();modal.classList.remove('open');modal.setAttribute('aria-hidden','true');};
     document.getElementById('gnp-v57-close').onclick=close;
     modal.addEventListener('click',e=>{if(e.target===modal)close();});
-    document.getElementById('gnp-v57-key-save').onclick=()=>saveKeyValue(document.getElementById('gnp-v57-key').value);
     document.getElementById('gnp-v57-key-test').onclick=testKey;
+    document.getElementById('gnp-v57-key').addEventListener('input',()=>updateKeyState());
     document.getElementById('gnp-v57-run-pending').onclick=()=>runScan('pending');
     document.getElementById('gnp-v57-run-all').onclick=()=>runScan('all');
     document.getElementById('gnp-v57-stop').onclick=()=>{stopRequested=true;setStatusText('현재 AI 묶음 처리 후 중지합니다.',false);};
-    document.getElementById('gnp-v57-key').value=getKey();
+    document.getElementById('gnp-v57-key').value='';
     updateKeyState(); renderStats(); renderAdminResults();
   }
 
@@ -18297,7 +18306,7 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
     const modal=document.getElementById('gnp-v57-dup-modal');
     if(!modal) return;
     const key=document.getElementById('gnp-v57-key');
-    if(key) key.value=getKey();
+    if(key) key.value='';
     updateKeyState(); renderStats(); renderAdminResults();
     modal.classList.add('open');modal.setAttribute('aria-hidden','false');
   }
@@ -18311,15 +18320,13 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
       return;
     }
     const exists=!!getKey();
-    el.textContent=exists?'키 저장됨 · 연결 확인 필요':'API 키 미입력';
+    el.textContent=exists?'API 키 입력됨 · 실행 후 폐기':'API 키 미입력';
     el.className=`rounded-full px-2 py-1 font-bold ${exists?'bg-amber-100 text-amber-700':'bg-slate-200 text-slate-600'}`;
   }
 
   async function testKey(){
     if(!isAllowed()) return;
-    const input=document.getElementById('gnp-v57-key');
-    if(input?.value.trim()) saveKeyValue(input.value);
-    const key=getKey();
+    const key=takeKey();
     if(!key) return alert('API 키를 입력해 주세요.');
     updateKeyState('연결 확인 중...',false);
     try{
@@ -18951,6 +18958,35 @@ import {
   window.addEventListener('focus',boot);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)boot();});
   console.log('[GNP SECURITY v2] Firestore Rules / team authority compatibility loaded');
+})();
+</script>
+
+
+<script id="gnp-security-v3-manual-api-key-only">
+(function(){
+  'use strict';
+  // 과거 버전에서 남아 있을 수 있는 OpenRouter 키를 영구 저장소에서 즉시 제거합니다.
+  try{ localStorage.removeItem('gnp_openrouter_key'); }catch(_){}
+  try{ sessionStorage.removeItem('gnp_openrouter_key'); }catch(_){}
+  function clearVisibleKeys(){
+    const main=document.getElementById('ai1-apikey');
+    const dup=document.getElementById('gnp-v57-key');
+    if(main) main.value='';
+    if(dup) dup.value='';
+    try{ window.app?.ai1?.refreshKeyStatus?.(); }catch(_){}
+  }
+  function bind(){
+    const main=document.getElementById('ai1-apikey');
+    if(main && main.dataset.noStoreBound!=='1'){
+      main.dataset.noStoreBound='1';
+      main.setAttribute('autocomplete','off');
+      main.addEventListener('input',()=>{ try{ window.app?.ai1?.refreshKeyStatus?.(); }catch(_){} });
+    }
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bind,{once:true}); else bind();
+  new MutationObserver(bind).observe(document.documentElement,{childList:true,subtree:true});
+  window.addEventListener('pagehide',clearVisibleKeys);
+  document.addEventListener('visibilitychange',()=>{ if(document.hidden) clearVisibleKeys(); });
 })();
 </script>
 
