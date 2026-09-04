@@ -12343,8 +12343,8 @@ const app = {
 
 
 <!-- ================================================================
-     FIREBASE V1 BRIDGE
-     1차 단계: Firebase 초기화 + Authentication + 기존 회원 이전 + users 프로필
+     FIREBASE V1 BRIDGE + SECURITY v4 APP CHECK
+     Firebase 초기화 + Authentication + App Check + users 프로필
      기존 localStorage 데이터는 이 단계에서 보존합니다. 전체 데이터 이전은 다음 단계에서 수행합니다.
      ================================================================ -->
 <script type="module">
@@ -12370,6 +12370,7 @@ const app = {
     serverTimestamp
   } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
   import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-functions.js";
+  import { initializeAppCheck, ReCaptchaEnterpriseProvider, getToken as getAppCheckToken } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app-check.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyD7NDBaym7lGl_uP3yaR0hn64mVOI3BVzw",
@@ -12385,9 +12386,17 @@ const app = {
   const EMAIL_DOMAIN = "gnp-hse.firebaseapp.com";
   const MIGRATION_MAP_KEY = "gnp_firebase_user_map_v1";
 
+  // SECURITY v4 - Firebase App Check (reCAPTCHA Enterprise)
+  // 이 Site Key는 비밀키가 아니며 웹앱 코드에 포함되는 공개 식별자입니다.
+  // Firebase Console > App Check 등록 후 발급받은 reCAPTCHA Enterprise Site Key로 아래 한 줄만 교체합니다.
+  const APP_CHECK_SITE_KEY = "PASTE_RECAPTCHA_ENTERPRISE_SITE_KEY_HERE";
+  const APP_CHECK_CONFIGURED = !!APP_CHECK_SITE_KEY && !APP_CHECK_SITE_KEY.includes("PASTE_RECAPTCHA");
+
   let fbApp = null;
   let fbAuth = null;
   let fbDb = null;
+  let fbAppCheck = null;
+  let fbAppCheckStatus = APP_CHECK_CONFIGURED ? "pending" : "not-configured";
   let migrationAuth = null;
   let migrationApp = null;
   let initialized = false;
@@ -12819,6 +12828,33 @@ ${firebaseError.code || firebaseError.message || "인증 정보를 확인해 주
     try {
       const existing = getApps().find(a => a.name === "[DEFAULT]");
       fbApp = existing || initializeApp(firebaseConfig);
+
+      // SECURITY v4: Auth/Firestore 인스턴스를 만들기 전에 App Check를 먼저 초기화합니다.
+      // Enforcement 전에는 App Check 오류가 기존 업무 기능을 차단하지 않도록 실패 시 계속 진행합니다.
+      if (APP_CHECK_CONFIGURED) {
+        try {
+          fbAppCheck = initializeAppCheck(fbApp, {
+            provider: new ReCaptchaEnterpriseProvider(APP_CHECK_SITE_KEY),
+            isTokenAutoRefreshEnabled: true
+          });
+          fbAppCheckStatus = "initialized";
+          getAppCheckToken(fbAppCheck, false).then(result => {
+            if (result?.token) {
+              fbAppCheckStatus = "verified";
+              console.log("[GNP Security v4] Firebase App Check token verified");
+            }
+          }).catch(error => {
+            fbAppCheckStatus = "token-error";
+            console.warn("[GNP Security v4] App Check token verification failed (enforcement 전에는 기존 기능 계속 사용 가능):", error);
+          });
+        } catch (error) {
+          fbAppCheckStatus = "init-error";
+          console.warn("[GNP Security v4] App Check initialization failed (enforcement 전에는 기존 기능 계속 사용 가능):", error);
+        }
+      } else {
+        console.warn("[GNP Security v4] App Check Site Key가 아직 설정되지 않았습니다. Firebase enforcement를 켜지 마세요.");
+      }
+
       // 로그인 상태는 현재 브라우저 탭/창의 세션 동안만 유지합니다.
       // 새로고침은 유지되지만 탭/창을 닫으면 Firebase Auth 세션이 종료됩니다.
       try {
@@ -12832,6 +12868,16 @@ ${firebaseError.code || firebaseError.message || "인증 정보를 확인해 주
         app: fbApp,
         auth: fbAuth,
         db: fbDb,
+        appCheck: fbAppCheck,
+        appCheckConfigured: APP_CHECK_CONFIGURED,
+        appCheckStatus: () => fbAppCheckStatus,
+        checkAppCheck: async () => {
+          if (!APP_CHECK_CONFIGURED || !fbAppCheck) throw new Error("App Check Site Key가 아직 설정되지 않았습니다.");
+          const result = await getAppCheckToken(fbAppCheck, true);
+          if (!result?.token) throw new Error("App Check 토큰을 발급받지 못했습니다.");
+          fbAppCheckStatus = "verified";
+          return { ok: true, expireTimeMillis: result.expireTimeMillis || null };
+        },
         config: firebaseConfig,
         version: FIREBASE_SCHEMA_VERSION,
         migrateUsers,
