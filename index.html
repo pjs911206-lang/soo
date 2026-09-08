@@ -20163,5 +20163,175 @@ import {
 })();
 </script>
 
+
+<!-- ============================================================
+     GNP v5.5 MOBILE PROFILE DIRECT OPEN FIX
+     - 모바일 개인정보 버튼이 숨겨진 데스크톱 avatar를 우회 클릭하던 v51 경로를 차단
+     - 모바일에서는 개인정보/비밀번호 모달을 직접 생성·표시
+     - 기존 Firebase 비밀번호 저장/권한잠금 로직은 기존 SECURITY v1/v2가 그대로 담당
+     - 안전제안/AI/동기화/알림/상단프레임/로그아웃 로직 미변경
+     ============================================================ -->
+<script id="gnp-v55-mobile-profile-direct-open">
+(function(){
+  'use strict';
+
+  function isMobile(){
+    return window.matchMedia ? window.matchMedia('(max-width:768px)').matches : window.innerWidth<=768;
+  }
+
+  function getApp(){
+    try{ if(typeof app!=='undefined' && app) return app; }catch(_){ }
+    return window.app || null;
+  }
+
+  function esc(value){
+    return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+  }
+
+  function collectTeams(me){
+    const teams=[];
+    const add=(v)=>{
+      const s=String(v||'').trim();
+      if(s && !teams.includes(s)) teams.push(s);
+    };
+    document.querySelectorAll('#reg-team option').forEach(o=>add(o.value || o.textContent));
+    try{
+      const a=getApp();
+      const rows=a?.db?.getUsers?.();
+      if(Array.isArray(rows)) rows.forEach(u=>add(u?.team));
+    }catch(_){ }
+    add(me?.team);
+    if(!teams.length) add('미지정');
+    return teams;
+  }
+
+  function ensureDirectModal(){
+    let modal=document.getElementById('profile-settings-modal');
+    if(modal) return modal;
+
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="profile-settings-modal" class="fixed inset-0 z-[100100] items-center justify-center bg-slate-950/50 p-4">
+        <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+          <div class="mb-5 flex items-start justify-between gap-4">
+            <div>
+              <h3 class="text-xl font-black text-slate-800">개인정보 변경</h3>
+              <p class="mt-1 text-xs text-slate-500">직급은 관리자 권한 설정에서만 변경할 수 있습니다.</p>
+            </div>
+            <button type="button" id="profile-settings-close" class="text-2xl leading-none text-slate-400 hover:text-slate-700">&times;</button>
+          </div>
+          <div class="space-y-4">
+            <div>
+              <label class="mb-1 block text-sm font-bold text-slate-700">이름 (ID)</label>
+              <input id="profile-name-id" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" placeholder="이름을 입력하세요">
+              <p id="profile-name-note" class="mt-1 text-[11px] text-slate-400"></p>
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-bold text-slate-700">비밀번호</label>
+              <input id="profile-password" type="password" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" placeholder="변경할 비밀번호만 입력">
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-bold text-slate-700">소속 팀</label>
+              <select id="profile-team" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm"></select>
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-bold text-slate-700">직급</label>
+              <input id="profile-role" readonly class="w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-100 px-3 py-2.5 text-sm font-bold text-slate-500">
+            </div>
+          </div>
+          <div class="mt-6 flex justify-end gap-2">
+            <button id="profile-settings-cancel" type="button" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-600">취소</button>
+            <button id="profile-settings-save" type="button" class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-black text-white hover:bg-blue-800">저장</button>
+          </div>
+        </div>
+      </div>`);
+
+    modal=document.getElementById('profile-settings-modal');
+    if(!modal) return null;
+
+    const close=()=>modal.classList.remove('open');
+    document.getElementById('profile-settings-close')?.addEventListener('click',close);
+    document.getElementById('profile-settings-cancel')?.addEventListener('click',close);
+    modal.addEventListener('click',e=>{ if(e.target===modal) close(); });
+    return modal;
+  }
+
+  function openDirectProfile(){
+    const a=getApp();
+    const me=a?.auth?.currentUser || null;
+    if(!me?.id || me.id==='guest') return;
+
+    const modal=ensureDirectModal();
+    if(!modal) return;
+
+    const isAdmin=String(me.id)==='admin' || String(me.legacyId||'')==='admin';
+    const name=document.getElementById('profile-name-id');
+    const note=document.getElementById('profile-name-note');
+    const pw=document.getElementById('profile-password');
+    const team=document.getElementById('profile-team');
+    const role=document.getElementById('profile-role');
+
+    if(name){
+      name.disabled=!isAdmin;
+      name.readOnly=!isAdmin;
+      name.value=String(me.name || me.id || '');
+    }
+    if(note){
+      note.textContent=isAdmin
+        ? '시스템 관리자 ID(admin)는 고정되며, 표시 이름만 변경할 수 있습니다.'
+        : '로그인 ID와 소속 팀은 보안을 위해 admin 권한설정에서만 변경할 수 있습니다.';
+    }
+    if(pw) pw.value='';
+
+    if(team){
+      const teams=collectTeams(me);
+      team.innerHTML=teams.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
+      team.value=String(me.team || teams[0] || '');
+      team.disabled=!isAdmin;
+      team.title=isAdmin ? '' : '소속 팀 변경은 admin 권한설정에서만 가능합니다.';
+    }
+
+    if(role){
+      role.value=String(me.role || document.getElementById('user-role')?.textContent || '-').trim();
+    }
+
+    modal.classList.add('open');
+
+    /* SECURITY v1/v2 MutationObserver가 새 모달의 저장 버튼을 Firebase 보안 저장으로
+       즉시 연결합니다. 첫 프레임 이후에도 저장 버튼 활성 상태만 보정합니다. */
+    requestAnimationFrame(()=>{
+      const save=document.getElementById('profile-settings-save');
+      if(save) save.disabled=false;
+      try{ document.getElementById('profile-password')?.focus({preventScroll:true}); }catch(_){ }
+    });
+  }
+
+  function install(){
+    const btn=document.getElementById('gnp-mobile-profile-v51');
+    if(!btn || btn.dataset.gnpV55DirectProfile==='1') return !!btn;
+    btn.dataset.gnpV55DirectProfile='1';
+
+    /* capture 단계에서 v51의 데스크톱 avatar 우회 클릭을 완전히 차단합니다. */
+    btn.addEventListener('click',function(e){
+      if(!isMobile()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      openDirectProfile();
+    },true);
+    return true;
+  }
+
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true});
+  else install();
+  window.addEventListener('load',install);
+  window.addEventListener('pageshow',install);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden) install(); });
+  [0,100,300,700,1500,3000].forEach(ms=>setTimeout(install,ms));
+
+  window.gnpMobileProfileV55={open:openDirectProfile,install};
+  console.log('[GNP v5.5] 모바일 개인정보/비밀번호 모달 직접 열기 활성');
+})();
+</script>
+
 </body>
 </html>
