@@ -19564,5 +19564,152 @@ import {
 </script>
 
 <!-- GNP SECURITY v4.7: Firestore 미존재 유령 제안은 tombstone으로 잔여 목록 정리; Rules 변경 없음 -->
+
+
+<!-- ============================================================
+     GNP v5.2 MOBILE TOPBAR FINAL RESTORE
+     - 모바일 상단 알림 + 사용자/개인정보 버튼 표시만 최종 복구
+     - 기존 알림/비밀번호 변경 모달 및 모든 업무 로직 재사용
+     - AI키 모바일 최적화 / Firebase / App Check / 권한 / 동기화 미변경
+     ============================================================ -->
+<style id="gnp-v52-mobile-topbar-final-restore">
+@media (max-width:768px){
+  #gnp-mobile-toolbar-v51{
+    display:flex !important;
+    visibility:visible !important;
+    opacity:1 !important;
+    width:100% !important;
+    min-width:0 !important;
+    height:60px !important;
+    min-height:60px !important;
+    flex:0 0 60px !important;
+    align-items:center !important;
+    justify-content:flex-end !important;
+    padding:0 10px 0 56px !important;
+    margin:0 !important;
+    box-sizing:border-box !important;
+    background:#fff !important;
+    border-bottom:1px solid #e2e8f0 !important;
+    box-shadow:0 1px 3px rgba(15,23,42,.06) !important;
+    overflow:visible !important;
+    position:relative !important;
+    z-index:1005 !important;
+    pointer-events:auto !important;
+  }
+  #gnp-mobile-toolbar-v51 > *{
+    visibility:visible !important;
+    opacity:1 !important;
+    pointer-events:auto !important;
+  }
+  #gnp-mobile-profile-v51{
+    display:flex !important;
+    visibility:visible !important;
+    opacity:1 !important;
+    min-width:0 !important;
+    max-width:calc(100vw - 122px) !important;
+    height:60px !important;
+    align-items:center !important;
+    justify-content:flex-end !important;
+    gap:8px !important;
+    border:0 !important;
+    background:transparent !important;
+    cursor:pointer !important;
+  }
+  #gnp-mobile-profile-v51 .gnp-v51-usertext{
+    display:flex !important;
+    visibility:visible !important;
+    opacity:1 !important;
+    flex-direction:column !important;
+    align-items:flex-end !important;
+    justify-content:center !important;
+    min-width:0 !important;
+  }
+  #gnp-mobile-user-info-v51,
+  #gnp-mobile-user-role-v51{
+    display:block !important;
+    visibility:visible !important;
+    opacity:1 !important;
+  }
+  #gnp-mobile-user-avatar-v51{
+    display:flex !important;
+    visibility:visible !important;
+    opacity:1 !important;
+    flex:0 0 36px !important;
+    width:36px !important;
+    height:36px !important;
+    min-width:36px !important;
+    min-height:36px !important;
+    align-items:center !important;
+    justify-content:center !important;
+    border-radius:9999px !important;
+    background:#003b72 !important;
+    color:#fff !important;
+  }
+  #gnp-v52-notify-mobile{
+    display:inline-flex !important;
+    visibility:visible !important;
+    opacity:1 !important;
+    flex:0 0 38px !important;
+    width:38px !important;
+    height:38px !important;
+    min-width:38px !important;
+    min-height:38px !important;
+    margin-right:7px !important;
+    align-items:center !important;
+    justify-content:center !important;
+    pointer-events:auto !important;
+  }
+}
+</style>
+<script id="gnp-v52-mobile-topbar-final-restore-script">
+(function(){
+  'use strict';
+  function isMobile(){
+    return window.matchMedia ? window.matchMedia('(max-width:768px)').matches : window.innerWidth<=768;
+  }
+  function restore(){
+    if(!isMobile()) return;
+    const toolbar=document.getElementById('gnp-mobile-toolbar-v51');
+    const profile=document.getElementById('gnp-mobile-profile-v51');
+    if(!toolbar || !profile) return;
+
+    toolbar.classList.remove('hidden');
+    profile.classList.remove('hidden');
+    toolbar.style.setProperty('display','flex','important');
+    toolbar.style.setProperty('visibility','visible','important');
+    toolbar.style.setProperty('opacity','1','important');
+    profile.style.setProperty('display','flex','important');
+    profile.style.setProperty('visibility','visible','important');
+    profile.style.setProperty('opacity','1','important');
+
+    /* 기존 v51 사용자/개인정보 동기화 및 기존 v52 알림 UI를 그대로 재사용 */
+    try{ window.gnpMobileTopbarV51?.sync?.(); }catch(_){ }
+    try{ window.gnpApprovalNotifyV52?.update?.(); }catch(_){ }
+
+    const notify=document.getElementById('gnp-v52-notify-mobile');
+    if(notify){
+      notify.classList.remove('hidden');
+      notify.style.setProperty('display','inline-flex','important');
+      notify.style.setProperty('visibility','visible','important');
+      notify.style.setProperty('opacity','1','important');
+    }
+  }
+
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',restore,{once:true});
+  else restore();
+  window.addEventListener('load',restore);
+  window.addEventListener('resize',restore,{passive:true});
+  window.addEventListener('focus',restore);
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden) restore(); });
+  [50,150,300,600,1000,1800,3000,5000].forEach(t=>setTimeout(restore,t));
+  let ticks=0;
+  const timer=setInterval(function(){
+    restore();
+    if(++ticks>=80) clearInterval(timer);
+  },250);
+  window.gnpMobileTopbarV52Restore=restore;
+})();
+</script>
+
 </body>
 </html>
