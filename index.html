@@ -19711,5 +19711,147 @@ import {
 })();
 </script>
 
+
+<!-- ============================================================
+     GNP v5.3 MOBILE TOPBAR COMPACT ALIGN
+     - 모바일 우측 알림/사용자 영역을 좌측 햄버거와 동일한 top/height로 정렬
+     - 기존 60px 상단바 레이아웃 공간 제거
+     - 알림/개인정보/비밀번호 변경 기능 로직 미변경
+     ============================================================ -->
+<style id="gnp-v53-mobile-topbar-compact-align">
+@media (max-width:768px){
+  #gnp-mobile-toolbar-v51{
+    display:flex !important;
+    visibility:visible !important;
+    opacity:1 !important;
+
+    position:fixed !important;
+    top:11px !important;
+    right:10px !important;
+    left:auto !important;
+
+    width:auto !important;
+    max-width:calc(100vw - 74px) !important;
+    min-width:0 !important;
+
+    height:38px !important;
+    min-height:38px !important;
+    max-height:38px !important;
+    flex:0 0 auto !important;
+
+    align-items:center !important;
+    justify-content:flex-end !important;
+    gap:6px !important;
+
+    padding:0 !important;
+    margin:0 !important;
+    box-sizing:border-box !important;
+
+    background:transparent !important;
+    border:0 !important;
+    box-shadow:none !important;
+    overflow:visible !important;
+    z-index:1100 !important;
+    pointer-events:auto !important;
+  }
+
+  #gnp-v52-notify-mobile{
+    display:inline-flex !important;
+    visibility:visible !important;
+    opacity:1 !important;
+    flex:0 0 38px !important;
+    width:38px !important;
+    height:38px !important;
+    min-width:38px !important;
+    min-height:38px !important;
+    margin:0 !important;
+    align-items:center !important;
+    justify-content:center !important;
+  }
+
+  #gnp-mobile-profile-v51{
+    display:flex !important;
+    visibility:visible !important;
+    opacity:1 !important;
+    width:auto !important;
+    max-width:calc(100vw - 118px) !important;
+    min-width:0 !important;
+    height:38px !important;
+    min-height:38px !important;
+    max-height:38px !important;
+    flex:0 1 auto !important;
+    align-items:center !important;
+    justify-content:flex-end !important;
+    gap:7px !important;
+    padding:0 !important;
+    margin:0 !important;
+    border:0 !important;
+    background:transparent !important;
+  }
+
+  #gnp-mobile-profile-v51 .gnp-v51-usertext{
+    display:flex !important;
+    min-width:0 !important;
+    max-width:170px !important;
+    height:38px !important;
+    justify-content:center !important;
+  }
+
+  #gnp-mobile-user-info-v51{
+    max-width:170px !important;
+    font-size:10px !important;
+    line-height:1.1 !important;
+  }
+
+  #gnp-mobile-user-role-v51{
+    max-width:170px !important;
+    font-size:8px !important;
+    line-height:1.05 !important;
+    margin-top:1px !important;
+  }
+
+  #gnp-mobile-user-avatar-v51{
+    flex:0 0 38px !important;
+    width:38px !important;
+    height:38px !important;
+    min-width:38px !important;
+    min-height:38px !important;
+  }
+
+  /* 좌측 햄버거와 정확히 같은 세로 위치/크기 */
+  #mobile-menu-button{
+    top:11px !important;
+    width:38px !important;
+    height:38px !important;
+  }
+
+  /* 알림 패널은 축소된 상단 컨트롤 바로 아래에서 열림 */
+  #gnp-v52-notify-panel{
+    top:56px !important;
+    right:8px !important;
+  }
+  #gnp-v52-toast{
+    top:60px !important;
+    right:8px !important;
+  }
+}
+
+@media (max-width:420px){
+  #gnp-mobile-profile-v51 .gnp-v51-usertext,
+  #gnp-mobile-user-info-v51,
+  #gnp-mobile-user-role-v51{
+    max-width:135px !important;
+  }
+}
+
+@media (max-width:360px){
+  #gnp-mobile-profile-v51 .gnp-v51-usertext,
+  #gnp-mobile-user-info-v51,
+  #gnp-mobile-user-role-v51{
+    max-width:105px !important;
+  }
+}
+</style>
+
 </body>
 </html>
