@@ -20351,5 +20351,251 @@ try{
 }
 </script>
 
+
+<!-- ============================================================
+     GNP v6.1 FINAL UX FIX
+     1) 신규 안전제안 작성자 = 현재 로그인 ID 자동 유지
+     2) 모바일 우측 사용자 원형 버튼 = 단일 직접 개인정보 모달 호출
+        (기존 v51/v55 중복 클릭 이벤트 제거, 자동 포커스 제거)
+     ============================================================ -->
+<script id="gnp-v61-author-profile-final-fix">
+(function(){
+  'use strict';
+
+  function getApp(){
+    try{ if(typeof app !== 'undefined' && app) return app; }catch(_){}
+    return window.app || null;
+  }
+
+  function currentLoginId(){
+    const a=getApp();
+    const u=a?.auth?.currentUser || null;
+    if(!u) return '';
+    const id=String(u.id || u.legacyId || '').trim();
+    if(id) return id;
+    return String(u.name || '').trim();
+  }
+
+  function syncNewProposalAuthor(){
+    const a=getApp();
+    const field=document.getElementById('ai1-author');
+    if(!a?.ai1 || !field) return;
+    /* 기존 제안 수정 중에는 원 작성자 표시를 보존합니다. */
+    if(a.ai1.editingId) return;
+    const id=currentLoginId();
+    if(!id) return;
+    field.value=(id.toLowerCase()==='guest') ? 'Guest' : id;
+    field.readOnly=true;
+    field.setAttribute('aria-readonly','true');
+  }
+
+  function ensureProfileModal(){
+    let modal=document.getElementById('profile-settings-modal');
+    if(modal) return modal;
+
+    document.body.insertAdjacentHTML('beforeend',`
+      <div id="profile-settings-modal" class="fixed inset-0 z-[100100] items-center justify-center bg-slate-950/50 p-4">
+        <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+          <div class="mb-5 flex items-start justify-between gap-4">
+            <div>
+              <h3 class="text-xl font-black text-slate-800">개인정보 변경</h3>
+              <p class="mt-1 text-xs text-slate-500">직급 및 소속 권한은 관리자 권한 설정에서 관리합니다.</p>
+            </div>
+            <button type="button" id="profile-settings-close" class="text-2xl leading-none text-slate-400 hover:text-slate-700">&times;</button>
+          </div>
+          <div class="space-y-4">
+            <div>
+              <label class="mb-1 block text-sm font-bold text-slate-700">이름 (ID)</label>
+              <input id="profile-name-id" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm">
+              <p id="profile-name-note" class="mt-1 text-[11px] text-slate-400"></p>
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-bold text-slate-700">비밀번호</label>
+              <input id="profile-password" type="password" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" placeholder="변경할 비밀번호만 입력">
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-bold text-slate-700">소속 팀</label>
+              <select id="profile-team" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm"></select>
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-bold text-slate-700">직급</label>
+              <input id="profile-role" readonly class="w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-100 px-3 py-2.5 text-sm font-bold text-slate-500">
+            </div>
+          </div>
+          <div class="mt-6 flex justify-end gap-2">
+            <button id="profile-settings-cancel" type="button" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-600">취소</button>
+            <button id="profile-settings-save" type="button" class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-black text-white hover:bg-blue-800">저장</button>
+          </div>
+        </div>
+      </div>`);
+
+    modal=document.getElementById('profile-settings-modal');
+    if(!modal) return null;
+    const close=()=>modal.classList.remove('open');
+    const closeBtn=document.getElementById('profile-settings-close');
+    const cancelBtn=document.getElementById('profile-settings-cancel');
+    if(closeBtn) closeBtn.onclick=close;
+    if(cancelBtn) cancelBtn.onclick=close;
+    modal.addEventListener('click',e=>{ if(e.target===modal) close(); });
+    return modal;
+  }
+
+  function fastTeamOptions(currentTeam){
+    const values=[];
+    const add=v=>{
+      const s=String(v||'').trim();
+      if(s && !values.includes(s)) values.push(s);
+    };
+    document.querySelectorAll('#reg-team option').forEach(o=>add(o.value || o.textContent));
+    add(currentTeam);
+    return values;
+  }
+
+  function openProfileDirect(e){
+    if(e){
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+    }
+    const a=getApp();
+    const me=a?.auth?.currentUser || null;
+    if(!me || String(me.id||'').toLowerCase()==='guest') return;
+
+    const modal=ensureProfileModal();
+    if(!modal) return;
+
+    const isAdmin=String(me.id||'')==='admin' || String(me.legacyId||'')==='admin';
+    const name=document.getElementById('profile-name-id');
+    const note=document.getElementById('profile-name-note');
+    const pw=document.getElementById('profile-password');
+    const team=document.getElementById('profile-team');
+    const role=document.getElementById('profile-role');
+
+    if(name){
+      name.value=String(me.name || me.id || '');
+      name.readOnly=!isAdmin;
+      name.disabled=false;
+    }
+    if(note){
+      note.textContent=isAdmin
+        ? '시스템 관리자 ID(admin)는 고정되며 표시 이름만 변경할 수 있습니다.'
+        : '로그인 ID와 권한 정보는 admin 권한 설정에서만 변경할 수 있습니다.';
+    }
+    if(pw) pw.value='';
+
+    if(team){
+      const teams=fastTeamOptions(me.team);
+      team.innerHTML=teams.map(t=>{
+        const safe=String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+        return `<option value="${safe}">${safe}</option>`;
+      }).join('');
+      team.value=String(me.team || teams[0] || '');
+      team.disabled=!isAdmin;
+    }
+    if(role) role.value=String(me.role || document.getElementById('user-role')?.textContent || '-').trim();
+
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden','false');
+
+    /* 모바일 키보드 강제 호출을 하지 않습니다. */
+    requestAnimationFrame(()=>{
+      const save=document.getElementById('profile-settings-save');
+      if(save) save.disabled=false;
+    });
+  }
+
+  function replaceMobileProfileButton(){
+    const old=document.getElementById('gnp-mobile-profile-v51');
+    if(!old) return false;
+    if(old.dataset.gnpV61SingleProfile==='1') return true;
+
+    /* cloneNode로 과거 v51/v55 addEventListener를 모두 제거합니다.
+       data-* 속성은 유지해 구형 재바인더가 다시 이벤트를 붙이지 않게 합니다. */
+    const fresh=old.cloneNode(true);
+    fresh.dataset.gnpV61SingleProfile='1';
+    fresh.dataset.boundV51='1';
+    fresh.dataset.gnpV55DirectProfile='1';
+    old.replaceWith(fresh);
+
+    fresh.addEventListener('click',openProfileDirect,true);
+
+    /* 원형 아이콘 자체도 명확한 터치 타겟으로 유지 */
+    const circle=fresh.querySelector('#gnp-mobile-user-avatar-v51');
+    if(circle){
+      circle.style.cursor='pointer';
+      circle.setAttribute('title','개인정보 / 비밀번호 변경');
+    }
+    return true;
+  }
+
+  function installAuthorFix(){
+    const a=getApp();
+    if(!a?.ai1) return false;
+
+    if(!a.ai1.resetForm.__gnpV61AuthorFix){
+      const prevReset=a.ai1.resetForm.bind(a.ai1);
+      const wrapped=function(){
+        const result=prevReset.apply(this,arguments);
+        this.editingId=null;
+        this.editingOriginal=null;
+        syncNewProposalAuthor();
+        return result;
+      };
+      wrapped.__gnpV61AuthorFix=true;
+      a.ai1.resetForm=wrapped;
+    }
+
+    if(a.ui?.initSystem && !a.ui.initSystem.__gnpV61AuthorFix){
+      const prevInit=a.ui.initSystem.bind(a.ui);
+      const wrappedInit=function(){
+        const result=prevInit.apply(this,arguments);
+        requestAnimationFrame(syncNewProposalAuthor);
+        setTimeout(syncNewProposalAuthor,80);
+        return result;
+      };
+      wrappedInit.__gnpV61AuthorFix=true;
+      a.ui.initSystem=wrappedInit;
+    }
+
+    if(a.router?.go && !a.router.go.__gnpV61AuthorFix){
+      const prevGo=a.router.go.bind(a.router);
+      const wrappedGo=function(){
+        const result=prevGo.apply(this,arguments);
+        const target=String(arguments[0]||'');
+        if(target==='AI1'){
+          requestAnimationFrame(syncNewProposalAuthor);
+          setTimeout(syncNewProposalAuthor,50);
+        }
+        return result;
+      };
+      wrappedGo.__gnpV61AuthorFix=true;
+      a.router.go=wrappedGo;
+    }
+
+    syncNewProposalAuthor();
+    return true;
+  }
+
+  function boot(){
+    installAuthorFix();
+    replaceMobileProfileButton();
+  }
+
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true});
+  else boot();
+  window.addEventListener('load',boot);
+  window.addEventListener('pageshow',boot);
+
+  [0,100,300,700,1500,3000].forEach(ms=>setTimeout(boot,ms));
+
+  window.gnpV61={
+    syncAuthor:syncNewProposalAuthor,
+    openProfile:openProfileDirect,
+    reinstallProfileButton:replaceMobileProfileButton
+  };
+  console.log('[GNP v6.1] 작성자 ID 자동유지 + 모바일 프로필 단일 이벤트 활성');
+})();
+</script>
+
 </body>
 </html>
