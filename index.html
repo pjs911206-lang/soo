@@ -20597,5 +20597,259 @@ try{
 })();
 </script>
 
+
+<!-- ============================================================
+     GNP v6.2 MOBILE PROFILE LIGHTWEIGHT MODAL
+     목적:
+     - 모바일 상단 사용자 버튼에서 기존 profile-settings-modal 경로를 완전히 우회
+     - 이름/소속/직급은 읽기 전용 표시
+     - 비밀번호 변경만 Firebase Authentication 직접 사용
+     - v51/v55/v61의 기존 모바일 클릭 리스너는 cloneNode로 제거
+     - 기존 PC 개인정보/권한/안전제안/AI/동기화 로직은 변경하지 않음
+     ============================================================ -->
+<style id="gnp-v62-mobile-profile-light-style">
+  #gnp-v62-profile-modal { display:none; }
+  #gnp-v62-profile-modal.open { display:flex; }
+  @media (max-width:768px){
+    #gnp-v62-profile-modal{
+      position:fixed;
+      inset:0;
+      z-index:200500;
+      align-items:center;
+      justify-content:center;
+      padding:16px;
+      background:rgba(15,23,42,.50);
+      -webkit-tap-highlight-color:transparent;
+    }
+    #gnp-v62-profile-card{
+      width:100%;
+      max-width:390px;
+      max-height:calc(100dvh - 32px);
+      overflow:auto;
+      border-radius:18px;
+      background:#fff;
+      box-shadow:0 20px 60px rgba(15,23,42,.28);
+      padding:20px;
+      box-sizing:border-box;
+      contain:layout paint;
+    }
+  }
+</style>
+
+<script id="gnp-v62-mobile-profile-light-script">
+(function(){
+  'use strict';
+
+  function isMobile(){
+    return window.matchMedia
+      ? window.matchMedia('(max-width:768px)').matches
+      : window.innerWidth <= 768;
+  }
+
+  function getApp(){
+    try{ if(typeof app !== 'undefined' && app) return app; }catch(_){}
+    return window.app || null;
+  }
+
+  function esc(value){
+    return String(value ?? '')
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;')
+      .replace(/'/g,'&#039;');
+  }
+
+  function currentUser(){
+    return getApp()?.auth?.currentUser || null;
+  }
+
+  function ensureModal(){
+    let modal=document.getElementById('gnp-v62-profile-modal');
+    if(modal) return modal;
+
+    document.body.insertAdjacentHTML('beforeend',`
+      <div id="gnp-v62-profile-modal" aria-hidden="true">
+        <div id="gnp-v62-profile-card" role="dialog" aria-modal="true" aria-labelledby="gnp-v62-profile-title">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px;">
+            <div>
+              <h3 id="gnp-v62-profile-title" style="margin:0;font-size:20px;font-weight:900;color:#0f172a;">개인정보 / 비밀번호 변경</h3>
+              <p style="margin:5px 0 0;font-size:11px;color:#64748b;">계정 권한과 소속 변경은 관리자 권한 설정에서 처리합니다.</p>
+            </div>
+            <button id="gnp-v62-close" type="button" aria-label="닫기" style="border:0;background:transparent;font-size:26px;line-height:1;color:#94a3b8;padding:0 2px;cursor:pointer;">&times;</button>
+          </div>
+
+          <div style="display:grid;gap:12px;">
+            <div>
+              <label style="display:block;margin-bottom:5px;font-size:11px;font-weight:800;color:#64748b;">이름 (ID)</label>
+              <input id="gnp-v62-name" readonly style="width:100%;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;padding:11px 12px;font-size:14px;color:#334155;">
+            </div>
+            <div>
+              <label style="display:block;margin-bottom:5px;font-size:11px;font-weight:800;color:#64748b;">소속 팀</label>
+              <input id="gnp-v62-team" readonly style="width:100%;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;padding:11px 12px;font-size:14px;color:#334155;">
+            </div>
+            <div>
+              <label style="display:block;margin-bottom:5px;font-size:11px;font-weight:800;color:#64748b;">직급 / 권한</label>
+              <input id="gnp-v62-role" readonly style="width:100%;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;padding:11px 12px;font-size:14px;color:#334155;">
+            </div>
+
+            <div style="height:1px;background:#e2e8f0;margin:2px 0;"></div>
+
+            <div>
+              <label style="display:block;margin-bottom:5px;font-size:11px;font-weight:900;color:#334155;">새 비밀번호</label>
+              <input id="gnp-v62-password" type="password" autocomplete="new-password" placeholder="6자리 이상 입력"
+                     style="width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;background:#fff;padding:12px;font-size:14px;outline:none;">
+            </div>
+            <div>
+              <label style="display:block;margin-bottom:5px;font-size:11px;font-weight:900;color:#334155;">새 비밀번호 확인</label>
+              <input id="gnp-v62-password-confirm" type="password" autocomplete="new-password" placeholder="한 번 더 입력"
+                     style="width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;background:#fff;padding:12px;font-size:14px;outline:none;">
+            </div>
+            <p id="gnp-v62-status" style="min-height:16px;margin:0;font-size:11px;color:#64748b;"></p>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+            <button id="gnp-v62-cancel" type="button"
+                    style="border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#475569;padding:10px 15px;font-size:13px;font-weight:800;cursor:pointer;">취소</button>
+            <button id="gnp-v62-save" type="button"
+                    style="border:0;border-radius:10px;background:#1d4ed8;color:#fff;padding:10px 15px;font-size:13px;font-weight:900;cursor:pointer;">비밀번호 변경</button>
+          </div>
+        </div>
+      </div>
+    `);
+
+    modal=document.getElementById('gnp-v62-profile-modal');
+    const close=()=>{
+      modal.classList.remove('open');
+      modal.setAttribute('aria-hidden','true');
+      const pw=document.getElementById('gnp-v62-password');
+      const cf=document.getElementById('gnp-v62-password-confirm');
+      const st=document.getElementById('gnp-v62-status');
+      if(pw) pw.value='';
+      if(cf) cf.value='';
+      if(st){ st.textContent=''; st.style.color='#64748b'; }
+    };
+
+    document.getElementById('gnp-v62-close').onclick=close;
+    document.getElementById('gnp-v62-cancel').onclick=close;
+    modal.addEventListener('click',e=>{ if(e.target===modal) close(); });
+
+    document.getElementById('gnp-v62-save').onclick=async()=>{
+      const pw=document.getElementById('gnp-v62-password')?.value || '';
+      const cf=document.getElementById('gnp-v62-password-confirm')?.value || '';
+      const st=document.getElementById('gnp-v62-status');
+      const save=document.getElementById('gnp-v62-save');
+
+      if(pw.length < 6){
+        if(st){ st.textContent='비밀번호는 6자리 이상 입력해 주세요.'; st.style.color='#b91c1c'; }
+        return;
+      }
+      if(pw !== cf){
+        if(st){ st.textContent='비밀번호 확인 값이 일치하지 않습니다.'; st.style.color='#b91c1c'; }
+        return;
+      }
+
+      try{
+        save.disabled=true;
+        save.textContent='변경 중...';
+        if(st){ st.textContent='Firebase Authentication에 변경 내용을 저장하고 있습니다...'; st.style.color='#475569'; }
+
+        const gf=window.gnpFirebase;
+        if(!gf?.auth?.currentUser) throw new Error('Firebase 로그인 세션이 없습니다. 다시 로그인해 주세요.');
+        if(typeof gf.updateCurrentCredentials !== 'function') throw new Error('Firebase 비밀번호 변경 기능이 준비되지 않았습니다.');
+
+        await gf.updateCurrentCredentials({password:pw});
+
+        if(st){ st.textContent='비밀번호가 변경되었습니다.'; st.style.color='#047857'; }
+        window.setTimeout(()=>{
+          close();
+          alert('비밀번호가 변경되었습니다. 다음 로그인부터 새 비밀번호를 사용해 주세요.');
+        },120);
+      }catch(error){
+        console.error('[GNP v6.2] password update failed:',error);
+        const code=String(error?.code || '');
+        let message=String(error?.message || '비밀번호 변경에 실패했습니다.');
+        if(code.includes('requires-recent-login') || /recent.?login/i.test(message)){
+          message='보안을 위해 로그아웃 후 다시 로그인한 다음 비밀번호를 변경해 주세요.';
+        }
+        if(st){ st.textContent=message; st.style.color='#b91c1c'; }
+      }finally{
+        save.disabled=false;
+        save.textContent='비밀번호 변경';
+      }
+    };
+
+    return modal;
+  }
+
+  function open(){
+    if(!isMobile()) return;
+    const me=currentUser();
+    if(!me || String(me.id||'').toLowerCase()==='guest') return;
+
+    const modal=ensureModal();
+    if(!modal) return;
+
+    const name=document.getElementById('gnp-v62-name');
+    const team=document.getElementById('gnp-v62-team');
+    const role=document.getElementById('gnp-v62-role');
+    const pw=document.getElementById('gnp-v62-password');
+    const cf=document.getElementById('gnp-v62-password-confirm');
+    const st=document.getElementById('gnp-v62-status');
+
+    if(name) name.value=String(me.name || me.id || '');
+    if(team) team.value=String(me.team || '미지정');
+    if(role) role.value=String(me.role || document.getElementById('user-role')?.textContent || '-').trim();
+    if(pw) pw.value='';
+    if(cf) cf.value='';
+    if(st){ st.textContent=''; st.style.color='#64748b'; }
+
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden','false');
+    /* 자동 focus를 하지 않아 모바일 키보드/레이아웃 재계산을 발생시키지 않습니다. */
+  }
+
+  function install(){
+    if(!isMobile()) return false;
+    const old=document.getElementById('gnp-mobile-profile-v51');
+    if(!old) return false;
+    if(old.dataset.gnpV62LightProfile==='1') return true;
+
+    const fresh=old.cloneNode(true);
+    fresh.dataset.gnpV62LightProfile='1';
+    fresh.dataset.gnpV61SingleProfile='1';
+    fresh.dataset.gnpV55DirectProfile='1';
+    fresh.dataset.boundV51='1';
+    old.replaceWith(fresh);
+
+    fresh.addEventListener('click',function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      open();
+    },true);
+
+    return true;
+  }
+
+  function boot(){
+    install();
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',boot,{once:true});
+  }else{
+    boot();
+  }
+  window.addEventListener('load',boot);
+  window.addEventListener('pageshow',boot);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden) boot(); });
+  [0,100,300,700,1500,3000].forEach(ms=>setTimeout(boot,ms));
+
+  window.gnpV62MobileProfile={open,install};
+  console.log('[GNP v6.2] 모바일 개인정보창 경량화 활성');
+})();
+</script>
+
 </body>
 </html>
