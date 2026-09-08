@@ -432,7 +432,7 @@
 
 
 <style id="gnp-v51-ai-key-mobile-fix">
-/* v5.1: 안전제안 작성 > 온라인 AI 연결 영역 모바일 최적화만 적용 */
+/* v5.1: 안전제안 작성 > Firebase Gemini AI 영역 모바일 최적화만 적용 */
 #ai1-apikey { min-width: 0 !important; max-width: 100% !important; box-sizing: border-box !important; }
 .ai1-key-row { width: 100%; min-width: 0; align-items: stretch; }
 .ai1-key-test-button { flex: 0 0 auto; }
@@ -1117,17 +1117,15 @@
 
             <div class="grid grid-cols-1 xl:grid-cols-5 gap-6">
                 <div class="xl:col-span-2 space-y-6">
-                    <div class="bg-sky-50 border border-sky-200 rounded-2xl shadow-sm p-4">
-                        <div class="flex items-center justify-between">
-                            <h4 class="font-black text-sky-800 text-sm"><i class="fas fa-cloud mr-2"></i>온라인 AI 연결</h4>
-                            <span id="ai1-key-status" class="text-[11px] px-2 py-1 rounded-full bg-slate-200 text-slate-600">API 키 미입력</span>
+                    <div id="ai1-gemini-card" class="bg-sky-50 border border-sky-200 rounded-2xl shadow-sm p-4">
+                        <div class="flex items-center justify-between gap-3">
+                            <h4 class="font-black text-sky-800 text-sm"><i class="fas fa-bolt mr-2"></i>Firebase Gemini AI</h4>
+                            <span id="ai1-key-status" class="text-[11px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">자동 연결</span>
                         </div>
-                        <p class="text-[11px] text-sky-800 mt-1 mb-2">OpenRouter API 키는 저장하지 않습니다. AI 기능을 사용할 때마다 직접 입력하며, 요청을 시작하면 입력칸에서 즉시 제거됩니다.</p>
-                        <div class="flex gap-2 ai1-key-row">
-                            <input id="ai1-apikey" type="password" autocomplete="off" class="flex-1 min-w-0 w-full border rounded-lg px-3 py-2 text-sm" placeholder="사용할 때마다 API 키 입력">
-                            <button onclick="app.ai1.testConnection()" class="ai1-key-test-button flex-shrink-0 px-3 py-2 border border-sky-300 text-sky-800 hover:bg-sky-100 rounded-lg text-xs font-bold whitespace-nowrap">연결 확인</button>
-                        </div>
-                        <p id="ai1-connection-help" class="text-[10px] text-slate-500 mt-2">키는 localStorage·sessionStorage·Firestore에 저장되지 않습니다. 연결 확인에도 키를 1회 사용한 뒤 폐기하므로 AI 실행 전 다시 입력해야 합니다.</p>
+                        <p class="text-[11px] text-sky-800 mt-1">Firebase AI Logic + Gemini 3.5 Flash-Lite를 사용합니다. 별도 API Key 입력 없이 App Check 보호 상태에서 바로 AI 기능을 실행합니다.</p>
+                        <!-- 기존 레이아웃 탐색 코드 호환용 비노출 마커: 실제 API Key가 아닙니다. -->
+                        <input id="ai1-apikey" type="hidden" value="firebase-ai-logic">
+                        <p id="ai1-connection-help" class="text-[10px] text-slate-500 mt-2">빠른 응답을 위해 Flash-Lite + 최소 사고(MINIMAL) 모드로 동작합니다.</p>
                     </div>
                     <div class="bg-white border rounded-2xl shadow-sm p-6">
                         <h4 class="font-black text-slate-800"><i class="fas fa-camera text-blue-700 mr-2"></i>1. 현장 정보 입력</h4>
@@ -1958,7 +1956,7 @@ const app = {
     },
 
 
-    // AI 안전제안 모듈 (OpenRouter 온라인 AI)
+    // AI 안전제안 모듈 (Firebase AI Logic + Gemini Developer API)
     ai1: {
         images: [],
         imageData: [],
@@ -2003,22 +2001,16 @@ const app = {
                 : '키를 다시 확인해 주세요. 입력값은 저장되지 않았으며 이미 폐기되었습니다.';
         },
         testConnection: async () => {
-            const key = app.ai1.takeKey();
-            if(!key) return alert('OpenRouter API 키를 입력해 주세요. 키는 저장되지 않습니다.');
-            app.ai1.setConnectionStatus('연결 확인 중...', false);
             try {
-                const res = await fetch('https://openrouter.ai/api/v1/key', {
-                    headers: { 'Authorization': `Bearer ${key}` }
-                });
-                if(!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                const remaining = data?.data?.limit_remaining;
-                const suffix = (typeof remaining === 'number') ? ` · 잔여 한도 ${remaining}` : '';
-                app.ai1.setConnectionStatus('연결 확인됨' + suffix, true);
+                if(!window.gnpGeminiAI?.ping) throw new Error('GEMINI_NOT_READY');
+                app.ai1.setConnectionStatus('Gemini 연결 확인 중...', true);
+                await window.gnpGeminiAI.ping();
+                app.ai1.setConnectionStatus('Gemini 연결됨', true);
+                return true;
             } catch (err) {
-                console.error(err);
-                app.ai1.setConnectionStatus('연결 확인 실패', false);
-                alert('API 키를 확인할 수 없습니다. OpenRouter에서 새 API 키를 발급하거나 인터넷 연결 상태를 확인해 주세요.');
+                console.error('[GNP Gemini] connection:', err);
+                app.ai1.setConnectionStatus('Gemini 연결 확인 필요', false);
+                return false;
             }
         },
         resizeImage: (file) => new Promise((resolve) => {
@@ -2079,66 +2071,32 @@ const app = {
             }
         },
         callOnlineAI: async (userText, focusText, isRegeneration = false) => {
-            const key = app.ai1.takeKey();
-            if(!key) throw new Error('NO_KEY');
             await app.ai1.ensureImageDataReady();
-            const system = `당신은 대한민국 제조업 사업장의 HSE(안전·보건·환경) 전문가입니다. 담당자가 적은 현장 정보${app.ai1.imageData.length ? '와 첨부 사진' : ''}을 근거로 실행 가능한 안전제안서 초안을 작성하십시오.
-반드시 아래 JSON 객체만 반환하십시오. Markdown, 코드블록, 부연설명은 작성하지 마십시오.
+            const gemini = window.gnpGeminiAI;
+            if(!gemini?.generateJson) throw new Error('GEMINI_NOT_READY');
+            const prompt = `당신은 대한민국 제조업 사업장의 HSE(안전·보건·환경) 전문가입니다. 담당자가 적은 현장 정보${app.ai1.imageData.length ? '와 첨부 사진' : ''}을 근거로 실행 가능한 안전제안서 초안을 작성하십시오.
+반드시 JSON 객체만 반환하십시오. Markdown, 코드블록, 부연설명은 작성하지 마십시오.
 사진에 보이지 않거나 입력되지 않은 사실은 단정하지 말고 "확인 필요"로 표현하십시오. 위험한 작업은 즉시 중지·격리 등 일반적인 안전 원칙을 우선 제안하되, 법정 기준 수치나 설비 사양은 현장 담당자 확인이 필요하다고 명시하십시오.
-{
- "type": "추락, 전도, 충돌, 낙하/비래, 감김/끼임, 절단, 감전, 화재/폭발, 중독/질식, 무리한동작, 기타 중 정확히 하나",
- "risk": "예상되는 위험 또는 사고 한 줄",
- "level": "높음 또는 보통 또는 낮음",
- "current": "입력내용 및 사진에서 확인되는 현황을 2~3문장으로",
- "immediate": "즉시조치를 2~3문장으로",
- "measure": "개선대책을 3~5문장으로. ${focusText} 관점을 반영하고 재발방지까지 포함",
- "effect": "기대효과를 1~2문장으로",
- "scores": {
-   "risk": 0,
-   "feasibility": 0,
-   "creativity": 0,
-   "scalability": 0,
-   "riskReason": "안전 Risk 개선 점수 근거 한 문장",
-   "feasibilityReason": "실현 가능성 점수 근거 한 문장",
-   "creativityReason": "창조성 점수 근거 한 문장",
-   "scalabilityReason": "범용성 점수 근거 한 문장"
- }
-}
-위험유형 분류 기준: type 값은 반드시 다음 11개 중 하나만 사용하십시오: 추락, 전도, 충돌, 낙하/비래, 감김/끼임, 절단, 감전, 화재/폭발, 중독/질식, 무리한동작, 기타.
-채점 기준: 안전 Risk 개선은 0~3점, 실현 가능성은 0~3점, 창조성은 0~2점, 범용성은 0~2점입니다. 입력 내용과 작성한 대책에 근거하여 보수적으로 채점하십시오. 각 점수는 반드시 정수여야 하며 총점은 10점 만점입니다.`;
-            const userContent = [{ type: 'text', text: `${userText}\n\n대책 작성 방향: ${focusText}${isRegeneration ? '\n기존 제안과 중복되지 않도록 다른 실행 관점의 대책을 제시하십시오.' : ''}` }];
+JSON 필드:
+- type: 추락, 전도, 충돌, 낙하/비래, 감김/끼임, 절단, 감전, 화재/폭발, 중독/질식, 무리한동작, 기타 중 정확히 하나
+- risk: 예상되는 위험 또는 사고 한 줄
+- level: 높음/보통/낮음 중 하나
+- current: 확인되는 현황 2~3문장
+- immediate: 즉시조치 2~3문장
+- measure: 개선대책 3~5문장. ${focusText} 관점 및 재발방지 포함
+- effect: 기대효과 1~2문장
+- scores: risk(0~3), feasibility(0~3), creativity(0~2), scalability(0~2), riskReason, feasibilityReason, creativityReason, scalabilityReason
+각 점수는 정수이며 총점은 10점 만점입니다.
+
+현장 정보:
+${userText}
+대책 작성 방향: ${focusText}${isRegeneration ? '\n기존 제안과 중복되지 않도록 다른 실행 관점의 대책을 제시하십시오.' : ''}`;
+            const parts = [{ text: prompt }];
             app.ai1.imageData.forEach(img => {
-                if(img?.b64) userContent.push({
-                    type: 'image_url',
-                    image_url: { url: `data:${img.mime || 'image/jpeg'};base64,${img.b64}` }
-                });
+                if(img?.b64) parts.push({ inlineData: { data: img.b64, mimeType: img.mime || 'image/jpeg' } });
             });
-            const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${key}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    model: 'openrouter/free',
-                    messages: [
-                        { role: 'system', content: system },
-                        { role: 'user', content: userContent }
-                    ],
-                    temperature: 0.25,
-                    max_tokens: 1100
-                })
-            });
-            if(!res.ok) {
-                const errorText = await res.text();
-                let detail = '';
-                try { detail = JSON.parse(errorText)?.error?.message || errorText; } catch(e) { detail = errorText; }
-                throw new Error(`API_${res.status}: ${String(detail).slice(0, 180)}`);
-            }
-            const data = await res.json();
-            const output = data?.choices?.[0]?.message?.content;
-            if(!output) throw new Error('AI가 응답 내용을 반환하지 않았습니다. 잠시 후 다시 시도해 주세요.');
-            app.ai1.lastModel = data?.model || '온라인 AI';
+            const output = await gemini.generateJson(parts, { maxOutputTokens: 1050, timeoutMs: 30000 });
+            app.ai1.lastModel = gemini.modelName || 'gemini-3.5-flash-lite';
             return app.ai1.parseJson(output);
         },
         normalizeScores: (raw) => {
@@ -2217,26 +2175,24 @@ const app = {
         },
         readableError: (err) => {
             const msg = String(err?.message || err);
-            if(msg === 'NO_KEY') return '온라인 AI API 키가 없습니다. 사용할 때마다 API 키를 직접 입력해 주세요.';
-            if(msg.includes('API_401') || msg.includes('API_403')) return 'API 키가 유효하지 않거나 사용 권한이 없습니다. OpenRouter API 키를 다시 확인해 주세요.';
-            if(msg.includes('API_429')) return '무료 모델의 요청 한도 또는 일시적인 가용성 제한에 도달했습니다. 잠시 후 다시 시도해 주세요.';
-            if(msg.includes('API_402')) return '현재 계정에서 모델 호출이 허용되지 않았습니다. OpenRouter 계정의 무료 모델 사용 가능 여부를 확인해 주세요.';
-            return `온라인 AI 분석에 실패했습니다. · ${app.ai1.esc(msg.slice(0, 200))}`;
+            if(msg.includes('GEMINI_NOT_READY')) return 'Firebase Gemini AI가 아직 초기화되지 않았습니다. 잠시 후 다시 시도해 주세요.';
+            if(/429|RESOURCE_EXHAUSTED|quota/i.test(msg)) return 'Gemini 무료 사용 한도 또는 일시적인 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.';
+            if(/403|PERMISSION_DENIED|app.?check/i.test(msg)) return 'Firebase AI 접근 권한 또는 App Check 상태를 확인해 주세요.';
+            return `Gemini AI 분석에 실패했습니다. · ${app.ai1.esc(msg.slice(0, 200))}`;
         },
         analyze: async () => {
             const location = document.getElementById('ai1-location').value.trim();
             const desc = document.getElementById('ai1-description').value.trim();
             if(!location && !desc && !app.ai1.images.length) return alert('장소·설비명, 현재 현황 또는 사진 중 하나 이상을 입력해 주세요.');
-            if(!app.ai1.getKey()) return alert('온라인 AI API 키를 입력해 주세요. 키는 저장되지 않으며 이번 요청에만 사용됩니다.');
             app.ai1.regenCount = 0;
             const status = document.getElementById('ai1-ai-status');
             const focusMap = { balanced:'즉시조치와 근본대책의 균형', quick:'즉시 실행 가능한 대책 우선', root:'설비 개선과 재발방지 중심', cost:'위험 저감 효과와 비용 효율의 균형' };
             const focusText = focusMap[document.getElementById('ai1-focus').value] || focusMap.balanced;
-            status.innerHTML = '<span class="text-blue-600 font-bold"><i class="fas fa-spinner fa-spin mr-1"></i>온라인 AI가 현장 정보를 분석하고 있습니다...</span>';
+            status.innerHTML = '<span class="text-blue-600 font-bold"><i class="fas fa-spinner fa-spin mr-1"></i>Gemini AI가 현장 정보를 분석하고 있습니다...</span>';
             try {
                 const r = await app.ai1.callOnlineAI(`위치/설비: ${location || '미기재'}\n담당자 현황 메모: ${desc || '미기재'}`, focusText);
                 app.ai1.applyDraft(r);
-                status.innerHTML = `<span class="text-emerald-600 font-bold"><i class="fas fa-check-circle mr-1"></i>온라인 AI 분석 완료</span> · 사용 모델: ${app.ai1.esc(app.ai1.lastModel)}${app.ai1.images.length ? ` · 사진 ${app.ai1.images.length}장 반영` : ''}`;
+                status.innerHTML = `<span class="text-emerald-600 font-bold"><i class="fas fa-check-circle mr-1"></i>Gemini AI 분석 완료</span> · 사용 모델: ${app.ai1.esc(app.ai1.lastModel)}${app.ai1.images.length ? ` · 사진 ${app.ai1.images.length}장 반영` : ''}`;
                 document.getElementById('ai1-option-note').textContent = 'AI 작성 결과입니다. 현장 담당자와 HSE 담당자가 검토한 후 확정해 주세요.';
                 app.ai1.checkDuplicate();
                 app.ai1.render();
@@ -8533,28 +8489,25 @@ const app = {
     const type=$('ai1-type')?.value.trim() || '';
     const status=$('ai1-help-status'), results=$('ai1-help-results'), button=$('ai1-help-button');
     if(!location && !desc && !(ai.images||[]).length) { alert('장소·설비명, 현황 또는 사진 중 하나 이상을 입력해 주세요.'); return; }
-    const key=typeof ai.takeKey==='function'?ai.takeKey():(typeof ai.getKey==='function'?ai.getKey():'');
-    if(!key){ alert('온라인 AI 연결에서 OpenRouter API 키를 입력해 주세요. 키는 이번 요청에만 사용됩니다.'); return; }
-    if(status)status.textContent='AI가 참고용 개선대안 3가지를 작성하고 있습니다...';
+    if(status)status.textContent='Gemini가 개선대안 3가지를 빠르게 작성하고 있습니다...';
     if(button){button.disabled=true;button.classList.add('opacity-60','cursor-wait');}
     if(results) results.innerHTML='';
     try{
       if(typeof ai.ensureImageDataReady==='function') await ai.ensureImageDataReady();
+      const gemini=window.gnpGeminiAI;
+      if(!gemini?.generateJson) throw new Error('Firebase Gemini AI가 아직 준비되지 않았습니다.');
       const prompt=`당신은 제조업 현장 안전 전문가입니다. 아래 현장 정보를 바탕으로 실행 가능한 개선대안 3가지를 제시하십시오.
-반드시 JSON만 반환하십시오: {"alternatives":["대안 1","대안 2","대안 3"]}.
-각 대안은 즉시 조치 또는 설비·관리 개선 내용을 포함하여 한국어 2~3문장으로 쓰십시오. 확인되지 않은 사실은 단정하지 마십시오.
+반드시 JSON 객체 하나만 반환하십시오: {"alternatives":["대안 1","대안 2","대안 3"]}.
+각 대안은 즉시 조치 또는 설비·관리 개선 내용을 포함하여 한국어 2~3문장으로 작성하십시오. 확인되지 않은 사실은 단정하지 마십시오.
 장소/설비: ${location || '미입력'}
 위험유형: ${type || '미입력'}
 현황: ${desc || '미입력'}`;
-      const content=[{type:'text',text:prompt}];
-      (ai.imageData||[]).forEach(img=>{if(img?.b64)content.push({type:'image_url',image_url:{url:`data:${img.mime||'image/jpeg'};base64,${img.b64}`}});});
-      const res=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'Authorization':`Bearer ${key}`,'Content-Type':'application/json'},body:JSON.stringify({model:'openrouter/free',messages:[{role:'user',content}],temperature:.35,max_tokens:700})});
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body=await res.json();
-      let text=body?.choices?.[0]?.message?.content || '';
-      text=String(text).replace(/```json|```/gi,'').trim();
+      const parts=[{text:prompt}];
+      (ai.imageData||[]).forEach(img=>{if(img?.b64)parts.push({inlineData:{data:img.b64,mimeType:img.mime||'image/jpeg'}});});
+      const text=await gemini.generateJson(parts,{maxOutputTokens:650,timeoutMs:25000});
       let alternatives=[];
-      try{ alternatives=JSON.parse(text).alternatives || []; }catch(_){ alternatives=text.split(/\n(?=\s*(?:\d+[\.\)]|[-•]))/).map(x=>x.replace(/^\s*(?:\d+[\.\)]|[-•])\s*/,'').trim()).filter(Boolean); }
+      try{ alternatives=JSON.parse(String(text).replace(/```json|```/gi,'').trim()).alternatives || []; }
+      catch(_){ alternatives=String(text).split(/\n(?=\s*(?:\d+[\.\)]|[-•]))/).map(x=>x.replace(/^\s*(?:\d+[\.\)]|[-•])\s*/,'').trim()).filter(Boolean); }
       alternatives=alternatives.slice(0,3);
       if(!alternatives.length) throw new Error('AI 응답을 읽을 수 없습니다.');
       if(results) results.innerHTML=alternatives.map((item,index)=>`
@@ -8569,10 +8522,10 @@ const app = {
         if(measure) measure.value=measure.value.trim()?`${measure.value.trim()}\n\n${value}`:value;
         measure?.scrollIntoView({behavior:'smooth',block:'center'});
       }));
-      if(status)status.textContent='참고용 개선대안 3가지를 생성했습니다. 필요한 대안을 선택해 적용하세요.';
+      if(status)status.textContent=`개선대안 3가지를 생성했습니다. · ${gemini.modelName || 'Gemini Flash-Lite'}`;
     }catch(err){
-      console.error(err);
-      if(status)status.textContent='AI 도움 요청에 실패했습니다. API 키·인터넷 연결·무료 모델 가용성을 확인한 뒤 키를 다시 입력해 주세요.';
+      console.error('[GNP Gemini] alternatives:',err);
+      if(status)status.textContent='Gemini AI 도움 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.';
     }finally{
       if(button){button.disabled=false;button.classList.remove('opacity-60','cursor-wait');}
     }
@@ -17733,7 +17686,7 @@ import {
 <!-- GNP v58: 관리자 전용 AI 유사·중복 제안 판독기
      - 사용 가능 계정: admin, 박종수, 신제우, 이정숙, 박신환
      - API 키는 저장하지 않고 판독 실행 시마다 직접 입력
-     - 로컬 후보 선별 -> OpenRouter 의미 판독 -> Firestore proposal 문서에 결과 merge
+     - 로컬 후보 선별 -> Gemini 의미 판독 -> Firestore proposal 문서에 결과 merge
      - 판독 결과는 전 사용자 안전제안 관리/전체보기에서 읽기 전용 배지로 표시
      - 관리자 수동 확정(중복/유사/중복아님) 지원
      - 기존 실시간/삭제/tombstone/결재/팀별조회/대시보드 로직은 변경하지 않음
@@ -17886,20 +17839,9 @@ import {
     };
   }
 
-  function getKey(){ return t(document.getElementById('gnp-v57-key')?.value || ''); }
-  function takeKey(){
-    const input=document.getElementById('gnp-v57-key');
-    const key=t(input?.value || '');
-    if(input) input.value='';
-    updateKeyState();
-    return key;
-  }
-  function saveKeyValue(value){
-    // 과거 함수명 호환용: 저장하지 않고 현재 입력칸에만 반영합니다.
-    const input=document.getElementById('gnp-v57-key');
-    if(input) input.value=t(value);
-    updateKeyState();
-  }
+  function getKey(){ return 'firebase-ai-logic'; }
+  function takeKey(){ updateKeyState(); return 'firebase-ai-logic'; }
+  function saveKeyValue(){ updateKeyState(); }
 
   async function ensureFs(){
     if(!fs) fs = await import(FS_URL);
@@ -18021,71 +17963,25 @@ import {
   }
 
   async function callAiOnce(batchPayload,key){
-    if(!key) throw new Error('OpenRouter API 키가 없습니다.');
     const system = `당신은 산업안전 개선제안 중복성 검토자입니다.
-목표는 문장 단어가 비슷한지 보는 것이 아니라, "위험 상황"과 "개선대책의 작동 원리"가 실질적으로 같은지 판정하는 것입니다.
-
-판정값은 반드시 다음 셋 중 하나입니다.
-- "중복제안": 같은 또는 사실상 같은 위험대상/상황에 대해 개선대책의 원리와 실제 조치가 거의 동일함.
-- "유사제안": 위험상황이 같거나 매우 가깝고 개선대책도 같은 기능/원리이지만 표현, 세부사양, 적용위치 등에 차이가 있음.
-- "다른제안": 위험상황이 같아도 개선대책의 작동 원리가 다르면 반드시 다른제안. 또는 위험상황 자체가 다름.
-
-중요 예시:
-1) "지게차 충돌 예방 / 충돌 방지 센서 설치" vs "지게차 충돌 예방 / 거리 감지 센서 설치" => 유사제안.
-2) "지게차 충돌 예방 / 충돌 방지 센서 설치" vs "지게차 충돌 예방 / 주변 반사경 설치" => 다른제안. 위험은 같지만 센서 감지와 시야확보는 대책 원리가 다름.
-3) 같은 장소·같은 설비에 "근접센서 설치"를 표현만 바꾸어 다시 제안한 경우 => 중복제안 가능성이 높음.
-4) 부서나 장소가 다르다는 이유만으로 다른제안으로 판정하지 마십시오. 동일 원리를 다른 장소에 적용하면 유사제안이 될 수 있습니다. 다만 완전히 같은 물리적 대상과 조치까지 겹칠 때 중복제안으로 보십시오.
-
-각 비교마다 riskSimilarity, actionSimilarity, score를 0~100 정수로 작성하십시오.
-score는 최종 유사도를 뜻하며 대책 원리 유사성을 가장 크게 반영하십시오.
-reason은 한국어 1문장, 80자 이내로 작성하십시오.
-입력으로 주어진 candidateId 외의 ID를 만들지 마십시오.
-응답은 지정된 JSON Schema만 따르십시오.`;
-
-    const user = {
-      task:'각 target을 제공된 candidates와 비교',
-      items:batchPayload
-    };
-
-    const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),90000);
+목표는 문장 단어가 비슷한지 보는 것이 아니라 "위험 상황"과 "개선대책의 작동 원리"가 실질적으로 같은지 판정하는 것입니다.
+판정값은 반드시 중복제안, 유사제안, 다른제안 중 하나입니다.
+- 중복제안: 위험대상/상황과 대책 원리·실제 조치가 사실상 동일
+- 유사제안: 위험상황이 같거나 매우 가깝고 대책도 같은 기능/원리이나 세부 적용 차이 존재
+- 다른제안: 위험상황이 다르거나, 위험이 같아도 대책 작동 원리가 다름
+예: 지게차 충돌방지 센서 vs 거리감지 센서 = 유사제안. 충돌방지 센서 vs 반사경 = 다른제안.
+각 비교마다 score, riskSimilarity, actionSimilarity를 0~100 정수로 작성하고 reason은 한국어 1문장 80자 이내로 작성하십시오.
+입력 candidateId 외의 ID를 만들지 마십시오.
+반드시 다음 JSON 구조만 반환하십시오: {"results":[{"targetId":"...","comparisons":[{"candidateId":"...","classification":"중복제안|유사제안|다른제안","score":0,"riskSimilarity":0,"actionSimilarity":0,"reason":"..."}]}]}`;
+    const user={task:'각 target을 제공된 candidates와 비교',items:batchPayload};
+    const gemini=window.gnpGeminiAI;
+    if(!gemini?.generateJson) throw new Error('Firebase Gemini AI가 아직 준비되지 않았습니다.');
+    const raw=await gemini.generateJson([{text:system+'\n\n입력 데이터:\n'+JSON.stringify(user)}],{maxOutputTokens:1500,timeoutMs:35000});
     try{
-      const res=await fetch('https://openrouter.ai/api/v1/chat/completions',{
-        method:'POST',
-        signal:controller.signal,
-        headers:{'Authorization':`Bearer ${key}`,'Content-Type':'application/json'},
-        body:JSON.stringify({
-          model:'openrouter/free',
-          messages:[
-            {role:'system',content:system},
-            {role:'user',content:JSON.stringify(user)}
-          ],
-          response_format:duplicateResponseFormat(),
-          provider:{require_parameters:true},
-          temperature:0,
-          max_tokens:2200,
-          stream:false
-        })
-      });
-      if(!res.ok){
-        const body=await res.text();
-        throw new Error(`OpenRouter HTTP ${res.status} · ${body.slice(0,220)}`);
-      }
-      const body=await res.json();
-      const choice=body?.choices?.[0];
-      const message=choice?.message;
-      const raw=readMessageContent(message);
-      try{
-        const parsed=parseJsonLoose(raw);
-        return validateAiResponse(parsed,batchPayload);
-      }catch(parseError){
-        const model=t(body?.model)||'모델 미확인';
-        const finish=t(choice?.finish_reason)||'미확인';
-        const preview=typeof raw==='string' ? raw.replace(/\s+/g,' ').slice(0,180) : JSON.stringify(raw||{}).slice(0,180);
-        throw new Error(`${parseError.message} · model=${model} · finish=${finish}${preview?` · 응답=${preview}`:''}`);
-      }
-    } finally {
-      clearTimeout(timer);
+      return validateAiResponse(parseJsonLoose(raw),batchPayload);
+    }catch(parseError){
+      const preview=String(raw||'').replace(/\s+/g,' ').slice(0,180);
+      throw new Error(`${parseError.message}${preview?` · 응답=${preview}`:''}`);
     }
   }
 
@@ -18097,8 +17993,8 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
       }catch(error){
         lastError=error;
         const msg=t(error?.message||error);
-        // 인증/결제/속도제한은 반복 호출하지 않고 즉시 사용자에게 알려줍니다.
-        if(/OpenRouter HTTP (401|402|403|429)/.test(msg)) throw error;
+        // 권한/할당량 오류는 반복 호출하지 않고 즉시 사용자에게 알려줍니다.
+        if(/PERMISSION_DENIED|RESOURCE_EXHAUSTED|429|403|App Check/i.test(msg)) throw error;
         if(attempt<3) await new Promise(resolve=>setTimeout(resolve,500*attempt));
       }
     }
@@ -18183,7 +18079,7 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
     if(!isAllowed()) return alert('AI 유사제안 판독 권한이 없습니다.');
     if(running) return;
     let runKey=takeKey();
-    if(!runKey) return alert('OpenRouter API 키를 입력해 주세요. 키는 판독 실행 1회 동안만 사용됩니다.');
+    if(!window.gnpGeminiAI?.generateJson) return alert('Firebase Gemini AI가 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.');
 
     const a=getApp();
     const all=(a?.ai1?.getData?.()||[]).filter(x=>t(x?.id));
@@ -18229,8 +18125,8 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
           }catch(error){
             const errorText=t(error?.message||error);
             console.error('[GNP v58] duplicate item scan:',error);
-            // 키/결제/호출한도 문제는 다음 건도 모두 실패하므로 전체 판독을 중단합니다.
-            if(/OpenRouter HTTP (401|402|403|429)/.test(errorText)) throw error;
+            // 권한/App Check/호출한도 문제는 다음 건도 모두 실패하므로 전체 판독을 중단합니다.
+            if(/PERMISSION_DENIED|RESOURCE_EXHAUSTED|429|403|App Check/i.test(errorText)) throw error;
             failed += payload.length;
             failedIds.push(...payload.map(x=>t(x?.target?.id)).filter(Boolean));
             updateProgress(done+failed,targets.length,flagged,`응답 형식 오류 · 재실행 가능 · ${payload.map(x=>x.target.id).join(', ')}`);
@@ -18423,18 +18319,12 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
           </div>
 
           <div class="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4">
-            <div class="flex flex-col lg:flex-row gap-3 lg:items-end">
-              <label class="flex-1 text-xs font-bold text-slate-600">OpenRouter API Key
-                <input id="gnp-v57-key" type="password" autocomplete="off" placeholder="sk-or-v1-..." class="mt-1 w-full h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-200">
-              </label>
-              <div class="flex flex-wrap gap-2">
-                <button id="gnp-v57-key-test" type="button" class="h-10 rounded-lg border border-slate-200 bg-white px-4 text-xs font-black text-slate-700">연결 확인</button>
-              </div>
+            <div class="flex flex-wrap items-center gap-2 text-[11px]">
+              <span id="gnp-v57-key-state" class="rounded-full bg-emerald-100 px-2 py-1 font-bold text-emerald-700">Gemini AI 자동 연결</span>
+              <span class="text-slate-500">Firebase AI Logic + App Check로 보호되며 별도 API Key 입력이 필요하지 않습니다.</span>
             </div>
-            <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-              <span id="gnp-v57-key-state" class="rounded-full bg-slate-200 px-2 py-1 font-bold text-slate-600">API 키 미입력</span>
-              <span class="text-slate-500">API 키는 어떤 저장소에도 기록하지 않습니다. 판독 실행 1회 동안만 사용 후 폐기합니다.</span>
-            </div>
+            <input id="gnp-v57-key" type="hidden" value="firebase-ai-logic">
+            <button id="gnp-v57-key-test" type="button" class="hidden">연결 확인</button>
           </div>
 
           <div class="rounded-xl border border-slate-200 p-4">
@@ -18508,28 +18398,19 @@ reason은 한국어 1문장, 80자 이내로 작성하십시오.
     if(!el) return;
     if(message){
       el.textContent=message;
-      el.className=`rounded-full px-2 py-1 font-bold ${good?'bg-emerald-100 text-emerald-700':'bg-red-100 text-red-700'}`;
+      el.className=`rounded-full px-2 py-1 font-bold ${good?'bg-emerald-100 text-emerald-700':'bg-slate-200 text-slate-600'}`;
       return;
     }
-    const exists=!!getKey();
-    el.textContent=exists?'API 키 입력됨 · 실행 후 폐기':'API 키 미입력';
-    el.className=`rounded-full px-2 py-1 font-bold ${exists?'bg-amber-100 text-amber-700':'bg-slate-200 text-slate-600'}`;
+    el.textContent=window.gnpGeminiAI?.readyState==='ready'?'Gemini AI 연결됨':'Gemini AI 자동 연결';
+    el.className='rounded-full bg-emerald-100 px-2 py-1 font-bold text-emerald-700';
   }
 
   async function testKey(){
-    if(!isAllowed()) return;
-    const key=takeKey();
-    if(!key) return alert('API 키를 입력해 주세요.');
-    updateKeyState('연결 확인 중...',false);
     try{
-      const res=await fetch('https://openrouter.ai/api/v1/key',{headers:{Authorization:`Bearer ${key}`}});
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data=await res.json();
-      const remain=data?.data?.limit_remaining;
-      updateKeyState(typeof remain==='number'?`연결됨 · 잔여 ${remain}`:'OpenRouter 연결됨',true);
-    }catch(error){
-      updateKeyState(`연결 실패 · ${t(error?.message||error)}`,false);
-    }
+      if(!window.gnpGeminiAI?.ping) throw new Error('Gemini AI 초기화 대기 중');
+      await window.gnpGeminiAI.ping();
+      updateKeyState('Gemini AI 연결됨',true);
+    }catch(error){ updateKeyState(`연결 확인 필요 · ${t(error?.message||error)}`,false); }
   }
 
   function renderStats(){
@@ -20331,6 +20212,143 @@ import {
   window.gnpMobileProfileV55={open:openDirectProfile,install};
   console.log('[GNP v5.5] 모바일 개인정보/비밀번호 모달 직접 열기 활성');
 })();
+</script>
+
+
+<script id="gnp-v60-gemini-compat-overrides">
+(function(){
+  'use strict';
+  function apply(){
+    const ai=window.app?.ai1;
+    if(!ai) return false;
+    ai.getKey=()=> 'firebase-ai-logic';
+    ai.takeKey=()=> 'firebase-ai-logic';
+    ai.saveKey=()=> true;
+    ai.refreshKeyStatus=()=>{
+      const badge=document.getElementById('ai1-key-status');
+      const help=document.getElementById('ai1-connection-help');
+      if(badge){
+        badge.textContent=window.gnpGeminiAI?.readyState==='ready'?'Gemini 연결됨':'자동 연결';
+        badge.className='text-[11px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700';
+      }
+      if(help) help.textContent='Firebase AI Logic + Gemini 3.5 Flash-Lite · 별도 API Key 입력 없음';
+    };
+    ai.testConnection=async()=>{
+      try{
+        if(!window.gnpGeminiAI?.ping) throw new Error('Gemini AI 초기화 대기 중');
+        await window.gnpGeminiAI.ping();
+        ai.refreshKeyStatus();
+        return true;
+      }catch(error){
+        console.error('[GNP Gemini] connection:',error);
+        alert('Gemini AI 연결 확인에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+        return false;
+      }
+    };
+    ai.refreshKeyStatus();
+    return true;
+  }
+  let n=0; const timer=setInterval(()=>{ if(apply() || ++n>300) clearInterval(timer); },100);
+  window.addEventListener('load',apply);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)apply();});
+})();
+</script>
+
+<script type="module" id="gnp-v60-firebase-ai-logic-gemini">
+import {
+  getAI,
+  getGenerativeModel,
+  GoogleAIBackend,
+  ThinkingLevel
+} from "https://www.gstatic.com/firebasejs/12.17.1/firebase-ai.js";
+
+const MODEL_NAME = 'gemini-3.5-flash-lite';
+let firebaseAI = null;
+const modelCache = new Map();
+
+function setState(state, detail=''){
+  const api = window.gnpGeminiAI || {};
+  api.readyState = state;
+  api.detail = detail;
+  window.gnpGeminiAI = api;
+  try{ window.app?.ai1?.refreshKeyStatus?.(); }catch(_){ }
+}
+
+async function waitForFirebaseApp(timeoutMs=15000){
+  const started=Date.now();
+  while(!window.gnpFirebase?.app){
+    if(Date.now()-started>timeoutMs) throw new Error('Firebase 앱 초기화 시간이 초과되었습니다.');
+    await new Promise(r=>setTimeout(r,50));
+  }
+  return window.gnpFirebase.app;
+}
+
+async function ensureAI(){
+  if(firebaseAI) return firebaseAI;
+  const firebaseApp=await waitForFirebaseApp();
+  firebaseAI=getAI(firebaseApp,{backend:new GoogleAIBackend()});
+  return firebaseAI;
+}
+
+async function getFastModel(maxOutputTokens=900){
+  const key=String(maxOutputTokens);
+  if(modelCache.has(key)) return modelCache.get(key);
+  const ai=await ensureAI();
+  const generationConfig={
+    maxOutputTokens,
+    responseMimeType:'application/json',
+    thinkingConfig:{thinkingLevel:ThinkingLevel.MINIMAL}
+  };
+  const model=getGenerativeModel(ai,{model:MODEL_NAME,generationConfig});
+  modelCache.set(key,model);
+  return model;
+}
+
+async function generateJson(parts,{maxOutputTokens=900,timeoutMs=30000}={}){
+  setState('working');
+  const model=await getFastModel(maxOutputTokens);
+  const request=Promise.resolve(model.generateContent(parts));
+  let timer=null;
+  const timeout=new Promise((_,reject)=>{
+    timer=setTimeout(()=>reject(new Error(`Gemini 응답 시간이 ${Math.round(timeoutMs/1000)}초를 초과했습니다.`)),timeoutMs);
+  });
+  try{
+    const result=await Promise.race([request,timeout]);
+    const text=result?.response?.text?.() || '';
+    if(!text) throw new Error('Gemini가 빈 응답을 반환했습니다.');
+    setState('ready');
+    return text;
+  }catch(error){
+    setState('error',String(error?.message||error));
+    throw error;
+  }finally{
+    if(timer) clearTimeout(timer);
+  }
+}
+
+async function ping(){
+  const text=await generateJson([{text:'반드시 JSON만 반환: {"ok":true}'}],{maxOutputTokens:32,timeoutMs:12000});
+  return /true/i.test(text);
+}
+
+window.gnpGeminiAI={
+  version:'v6.0',
+  provider:'Firebase AI Logic / Gemini Developer API',
+  modelName:MODEL_NAME,
+  readyState:'loading',
+  generateJson,
+  ping,
+  ensureAI
+};
+
+try{
+  await ensureAI();
+  setState('ready');
+  console.log('[GNP v6.0] Firebase AI Logic ready:',MODEL_NAME,'thinking=MINIMAL');
+}catch(error){
+  console.error('[GNP v6.0] Firebase AI Logic init failed:',error);
+  setState('error',String(error?.message||error));
+}
 </script>
 
 </body>
