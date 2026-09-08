@@ -430,6 +430,49 @@
 #gnp-v32-migration .ghost{background:#f1f5f9;color:#334155}
 </style>
 
+
+<style id="gnp-v51-ai-key-mobile-fix">
+/* v5.1: 안전제안 작성 > 온라인 AI 연결 영역 모바일 최적화만 적용 */
+#ai1-apikey { min-width: 0 !important; max-width: 100% !important; box-sizing: border-box !important; }
+.ai1-key-row { width: 100%; min-width: 0; align-items: stretch; }
+.ai1-key-test-button { flex: 0 0 auto; }
+@media (max-width: 768px) {
+  .ai1-key-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 6px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  #ai1-apikey {
+    width: 100% !important;
+    min-width: 0 !important;
+    font-size: 12px !important;
+    padding-left: 9px !important;
+    padding-right: 9px !important;
+  }
+  .ai1-key-test-button {
+    min-width: 70px !important;
+    padding-left: 9px !important;
+    padding-right: 9px !important;
+    font-size: 11px !important;
+  }
+  #ai1-connection-help {
+    overflow-wrap: anywhere !important;
+    word-break: keep-all !important;
+  }
+}
+@media (max-width: 360px) {
+  .ai1-key-row {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .ai1-key-test-button {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+}
+</style>
+
 </head>
 <!-- GNP v28 lightweight: unrelated module view payloads removed; safety proposal/permission/dashboard retained -->
 <body class="h-screen flex overflow-hidden">
@@ -1080,9 +1123,9 @@
                             <span id="ai1-key-status" class="text-[11px] px-2 py-1 rounded-full bg-slate-200 text-slate-600">API 키 미입력</span>
                         </div>
                         <p class="text-[11px] text-sky-800 mt-1 mb-2">OpenRouter API 키는 저장하지 않습니다. AI 기능을 사용할 때마다 직접 입력하며, 요청을 시작하면 입력칸에서 즉시 제거됩니다.</p>
-                        <div class="flex gap-2">
-                            <input id="ai1-apikey" type="password" autocomplete="off" class="flex-1 border rounded-lg px-3 py-2 text-sm" placeholder="사용할 때마다 API 키 입력">
-                            <button onclick="app.ai1.testConnection()" class="px-3 py-2 border border-sky-300 text-sky-800 hover:bg-sky-100 rounded-lg text-xs font-bold whitespace-nowrap">연결 확인</button>
+                        <div class="flex gap-2 ai1-key-row">
+                            <input id="ai1-apikey" type="password" autocomplete="off" class="flex-1 min-w-0 w-full border rounded-lg px-3 py-2 text-sm" placeholder="사용할 때마다 API 키 입력">
+                            <button onclick="app.ai1.testConnection()" class="ai1-key-test-button flex-shrink-0 px-3 py-2 border border-sky-300 text-sky-800 hover:bg-sky-100 rounded-lg text-xs font-bold whitespace-nowrap">연결 확인</button>
                         </div>
                         <p id="ai1-connection-help" class="text-[10px] text-slate-500 mt-2">키는 localStorage·sessionStorage·Firestore에 저장되지 않습니다. 연결 확인에도 키를 1회 사용한 뒤 폐기하므로 AI 실행 전 다시 입력해야 합니다.</p>
                     </div>
