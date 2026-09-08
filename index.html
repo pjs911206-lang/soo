@@ -17717,6 +17717,7 @@ import {
   'use strict';
 
   const VERSION = 'v58-semantic-2';
+  const LIVE_CACHE_PATCH = 'v6.4';
   const ALLOWED_IDS = new Set(['admin','박종수','신제우','이정숙','박신환']);
   const FS_URL = 'https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js';
   const PROPOSAL_COLLECTION = 'safetyProposals';
@@ -17859,13 +17860,25 @@ import {
     );
   }
 
+  function syncReviewToLiveCache(id, review){
+    const a=getApp();
+    if(!a?.ai1?.getData || !a?.ai1?.saveData) return false;
+    const live=(a.ai1.getData()||[]).find(x=>t(x?.id)===t(id));
+    if(!live) return false;
+    const updated={...live,duplicateReview:{...(review||{})}};
+    /* v45 saveData는 부분 목록 병합을 지원하므로 해당 제안 1건만 넘겨
+       현재 Firestore-backed UI 캐시를 즉시 갱신합니다. */
+    a.ai1.saveData([updated]);
+    return true;
+  }
+
   async function mergeReview(id, patch){
     const a=getApp();
     const item=(a?.ai1?.getData?.()||[]).find(x=>t(x?.id)===t(id));
     const current={...(item?.duplicateReview||{})};
     const next={...current,...patch};
     await writeReview(id,next);
-    if(item) item.duplicateReview=next;
+    syncReviewToLiveCache(id,next);
     try{ a?.ai1?.render?.(); }catch(_){}
     renderAdminResults();
     renderStats();
@@ -18109,6 +18122,7 @@ import {
           if(!candidates.length){
             const review=noCandidateReview(target);
             await writeReview(target.id,review);
+            syncReviewToLiveCache(target.id,review);
             target.duplicateReview=review;
             done++;
             updateProgress(done+failed,targets.length,flagged,`후보 없음 · ${target.id}`);
@@ -18146,6 +18160,7 @@ import {
               }
               const review=normalizeAiResult(target,candidates,responseItem);
               await writeReview(id,review);
+              syncReviewToLiveCache(id,review);
               target.duplicateReview=review;
               if(review.aiStatus==='유사제안'||review.aiStatus==='중복제안') flagged++;
               done++;
